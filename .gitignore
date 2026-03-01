@@ -1,0 +1,22 @@
+# Claude Code internal directory
+.claude/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+venv/
+.venv/
+
+# Dataset and large files (too big for GitHub)
+face_recognition_system/dataset/
+face_recognition_system/processed/
+
+# Trained model files (keep only quantized .h files)
+face_recognition_system/models/*.keras
+face_recognition_system/models/*.h5
+face_recognition_system/models/*.tflite
+
+# macOS
+.DS_Store

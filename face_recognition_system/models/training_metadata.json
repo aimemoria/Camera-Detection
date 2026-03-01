@@ -1,0 +1,25 @@
+{
+  "img_size": 96,
+  "num_classes_stage_a": 2,
+  "num_classes_stage_b": 6,
+  "class_names_stage_a": [
+    "no_person",
+    "person"
+  ],
+  "class_names_stage_b": [
+    "grief",
+    "hair",
+    "happy",
+    "multiple",
+    "no_hair",
+    "sad"
+  ],
+  "stage_a_train_size": 5628,
+  "stage_a_val_size": 201,
+  "stage_a_test_size": 201,
+  "stage_b_train_size": 4704,
+  "stage_b_val_size": 168,
+  "stage_b_test_size": 168,
+  "unknown_test_size": 150,
+  "unknown_threshold": 0.7000000000000002
+}

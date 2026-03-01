@@ -1,0 +1,61 @@
+{
+  "optimal_threshold": 0.7000000000000002,
+  "known_accuracy": 1.0,
+  "unknown_rejection": 0.013333333333333334,
+  "all_results": [
+    {
+      "threshold": 0.5,
+      "known_accuracy": 0.9880952380952381,
+      "unknown_rejection": 0.0,
+      "combined_score": 0.0
+    },
+    {
+      "threshold": 0.55,
+      "known_accuracy": 0.9880952380952381,
+      "unknown_rejection": 0.006666666666666667,
+      "combined_score": 0.01324397638290351
+    },
+    {
+      "threshold": 0.6000000000000001,
+      "known_accuracy": 0.9880952380952381,
+      "unknown_rejection": 0.006666666666666667,
+      "combined_score": 0.01324397638290351
+    },
+    {
+      "threshold": 0.6500000000000001,
+      "known_accuracy": 0.9880952380952381,
+      "unknown_rejection": 0.013333333333333334,
+      "combined_score": 0.02631161832040318
+    },
+    {
+      "threshold": 0.7000000000000002,
+      "known_accuracy": 1.0,
+      "unknown_rejection": 0.013333333333333334,
+      "combined_score": 0.026315789471087255
+    },
+    {
+      "threshold": 0.7500000000000002,
+      "known_accuracy": 1.0,
+      "unknown_rejection": 0.013333333333333334,
+      "combined_score": 0.026315789471087255
+    },
+    {
+      "threshold": 0.8000000000000003,
+      "known_accuracy": 1.0,
+      "unknown_rejection": 0.013333333333333334,
+      "combined_score": 0.026315789471087255
+    },
+    {
+      "threshold": 0.8500000000000003,
+      "known_accuracy": 1.0,
+      "unknown_rejection": 0.013333333333333334,
+      "combined_score": 0.026315789471087255
+    },
+    {
+      "threshold": 0.9000000000000004,
+      "known_accuracy": 1.0,
+      "unknown_rejection": 0.013333333333333334,
+      "combined_score": 0.026315789471087255
+    }
+  ]
+}
