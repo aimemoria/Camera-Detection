@@ -70,35 +70,34 @@
 #define ARENA_B_SIZE  (56 * 1024)   // 56 KB for Stage B
 #define INFERENCE_INTERVAL_MS  500         // ms between frames
 
-// Stage B: number of attribute classes
-#define NUM_ATTRIBUTES      6
+// Stage B: number of recognizable persons
+#define NUM_ATTRIBUTES      5
 
 // Confidence threshold below which we report "unknown state"
 #define UNKNOWN_THRESHOLD   0.70f
 
 // =============================================================================
-// Attribute labels and buzzer-pattern mapping
+// Person labels and buzzer-pattern mapping
 // =============================================================================
-// Stage B class indices must match the order in processed/metadata.json:
-//   0=grief  1=hair  2=happy  3=multiple  4=no_hair  5=sad
+// Stage B class indices must match alphabetical folder order in dataset/attributes/:
+//   0=Colin_Powell  1=Donald_Rumsfeld  2=George_W_Bush
+//   3=Gerhard_Schroeder  4=Tony_Blair
 
 const char* ATTRIBUTE_NAMES[NUM_ATTRIBUTES] = {
-  "GRIEF",       // class 0
-  "HAS HAIR",    // class 1
-  "HAPPY",       // class 2
-  "MULTIPLE PERSONS", // class 3
-  "NO HAIR",     // class 4
-  "SAD"          // class 5
+  "Colin Powell",       // class 0
+  "Donald Rumsfeld",    // class 1
+  "George W Bush",      // class 2
+  "Gerhard Schroeder",  // class 3
+  "Tony Blair",         // class 4
 };
 
-// Maps Stage B class index → BEEP_PATTERNS index
+// Maps Stage B class index → BEEP_PATTERNS index (one distinct tone per person)
 const int ATTR_TO_PATTERN[NUM_ATTRIBUTES] = {
-  5,  // grief    → PATTERN_GRIEF
-  6,  // hair     → PATTERN_HAIR
-  3,  // happy    → PATTERN_SMILE
-  2,  // multiple → PATTERN_MANY
-  7,  // no_hair  → PATTERN_NO_HAIR
-  4   // sad      → PATTERN_SAD
+  3,  // Colin Powell      → single high tone
+  4,  // Donald Rumsfeld   → single low tone
+  1,  // George W Bush     → two short beeps (gate tone reused)
+  6,  // Gerhard Schroeder → mid tone
+  7,  // Tony Blair        → short quick beep
 };
 
 // =============================================================================
