@@ -31,11 +31,11 @@ PERSONS_DIR = BASE_DIR / "attributes"   # kept as "attributes" so preprocess wor
 
 # The 5 persons to recognize — chosen because they have the most LFW photos
 TARGET_PERSONS = [
-    "George_W_Bush",
-    "Colin_Powell",
-    "Tony_Blair",
-    "Donald_Rumsfeld",
-    "Gerhard_Schroeder",
+    "George W Bush",
+    "Colin Powell",
+    "Tony Blair",
+    "Donald Rumsfeld",
+    "Gerhard Schroeder",
 ]
 
 IMG_SIZE      = 96
@@ -45,7 +45,7 @@ MIN_FACES     = 50    # minimum faces per person in LFW download
 ALL_DIRS = (
     [BASE_DIR / "stage_a" / "person",
      BASE_DIR / "stage_a" / "no_person"]
-    + [PERSONS_DIR / p for p in TARGET_PERSONS]
+    + [PERSONS_DIR / p.replace(" ", "_") for p in TARGET_PERSONS]
     + [BASE_DIR / "unknown_test" / f"other_person{i}" for i in range(1, 4)]
 )
 
@@ -83,10 +83,11 @@ def download_lfw():
         pid = matches[0]
         imgs = images[labels == pid]
         count = min(len(imgs), MAX_PER_CLASS)
-        out_dir = PERSONS_DIR / person_name
+        folder_name = person_name.replace(" ", "_")
+        out_dir = PERSONS_DIR / folder_name
         for j in range(count):
             arr = (imgs[j] * 255).astype(np.uint8)
-            save_gray(arr, out_dir / f"{person_name.lower()}_{j+1:04d}.png")
+            save_gray(arr, out_dir / f"{folder_name.lower()}_{j+1:04d}.png")
         print(f"  {person_name}: {count} images saved")
         found.append(person_name)
 
@@ -107,10 +108,11 @@ def download_lfw():
             pid = matches[0]
             imgs = images2[labels2 == pid]
             count = min(len(imgs), MAX_PER_CLASS)
-            out_dir = PERSONS_DIR / person_name
+            folder_name = person_name.replace(" ", "_")
+            out_dir = PERSONS_DIR / folder_name
             for j in range(count):
                 arr = (imgs[j] * 255).astype(np.uint8)
-                save_gray(arr, out_dir / f"{person_name.lower()}_{j+1:04d}.png")
+                save_gray(arr, out_dir / f"{folder_name.lower()}_{j+1:04d}.png")
             print(f"  {person_name}: {count} images saved (from relaxed fetch)")
             found.append(person_name)
 
@@ -195,7 +197,7 @@ def main():
     print("=" * 55)
     print(f"\nPersons recognized ({len(found)}/5):")
     for name in TARGET_PERSONS:
-        d = PERSONS_DIR / name
+        d = PERSONS_DIR / name.replace(" ", "_")
         n = len(list(d.glob("*.png"))) if d.exists() else 0
         status = "OK" if n > 0 else "MISSING"
         print(f"  [{status}] {name.replace('_', ' ')}: {n} images")
