@@ -13,7 +13,7 @@ Then in VS Code:
 
 The page auto-refreshes and shows:
   - Live camera feed (left)
-  - Last inference result (right)
+  - Face detection result: status / recognized / confidence (right)
 """
 
 import serial
@@ -31,14 +31,16 @@ FRAME_END   = bytes([0xFF, 0xBB])
 # ──────────────────────────────────────────────────────────────────────────────
 
 # Shared state (updated by serial thread, read by HTTP thread)
-latest_jpeg   = None
-latest_result = "Waiting for first frame..."
-lock          = threading.Lock()
+latest_jpeg       = None
+latest_result     = "Waiting for first frame..."
+latest_recognized = "---"
+latest_confidence = "---"
+lock              = threading.Lock()
 
 
 # ─── Serial Reader Thread ─────────────────────────────────────────────────────
 def serial_reader():
-    global latest_jpeg, latest_result
+    global latest_jpeg, latest_result, latest_recognized, latest_confidence
 
     print(f"Opening serial port {SERIAL_PORT} ...")
     try:
@@ -66,6 +68,14 @@ def serial_reader():
                 if line.startswith('RESULT:'):
                     with lock:
                         latest_result = line.replace('RESULT:', '').strip()
+                    print(f"  {line}")
+                elif line.startswith('RECOGNIZED:'):
+                    with lock:
+                        latest_recognized = line.replace('RECOGNIZED:', '').strip()
+                    print(f"  {line}")
+                elif line.startswith('CONFIDENCE:'):
+                    with lock:
+                        latest_confidence = line.replace('CONFIDENCE:', '').strip()
                     print(f"  {line}")
 
             # Extract JPEG frames
@@ -106,47 +116,106 @@ HTML_PAGE = """<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
-  <title>ArduCAM Live Preview</title>
+  <title>Face Detection — Live Preview</title>
   <style>
+    * { box-sizing: border-box; }
     body  { background:#111; color:#eee; font-family:monospace; margin:0;
             display:flex; flex-direction:column; align-items:center; padding:20px; }
-    h1    { color:#4fc; margin-bottom:10px; font-size:1.2em; }
+    h1    { color:#4fc; margin-bottom:16px; font-size:1.2em; letter-spacing:1px; }
     .row  { display:flex; gap:30px; align-items:flex-start; }
     .cam  { display:flex; flex-direction:column; align-items:center; }
     img   { border:2px solid #4fc; image-rendering:pixelated;
             width:480px; height:auto; }
-    .info { background:#222; border:1px solid #4fc; border-radius:6px;
-            padding:20px; min-width:280px; }
-    .result { font-size:1.5em; color:#4fc; margin-top:10px; word-break:break-word; }
-    .sub  { font-size:0.8em; color:#888; margin-top:20px; }
-    .dot  { display:inline-block; width:10px; height:10px; border-radius:50%;
-            background:#4fc; animation:pulse 1s infinite; }
+    .cam-label { font-size:0.8em; color:#888; margin-top:8px; }
+    .dot  { display:inline-block; width:8px; height:8px; border-radius:50%;
+            background:#4fc; animation:pulse 1s infinite; margin-right:5px; }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+    /* Result card */
+    .info { background:#1a1a1a; border:1px solid #4fc; border-radius:8px;
+            padding:24px; min-width:300px; }
+    .card-title { font-size:0.75em; color:#666; letter-spacing:2px;
+                  text-transform:uppercase; margin-bottom:16px; }
+
+    .status-line { font-size:1.1em; font-weight:bold; padding:8px 12px;
+                   border-radius:4px; margin-bottom:16px; text-align:center; }
+    .status-detected   { background:#0a3320; color:#4fc; border:1px solid #4fc; }
+    .status-noface     { background:#2a1a00; color:#f80; border:1px solid #f80; }
+    .status-waiting    { background:#222; color:#666; border:1px solid #444; }
+
+    .field { margin-bottom:12px; }
+    .field-label { font-size:0.7em; color:#666; letter-spacing:1px;
+                   text-transform:uppercase; margin-bottom:3px; }
+    .field-value { font-size:1.4em; color:#fff; font-weight:bold; }
+    .field-value.highlight { color:#4fc; }
+
+    .conf-bar-wrap { background:#333; border-radius:3px; height:6px;
+                     margin-top:6px; overflow:hidden; }
+    .conf-bar { height:6px; border-radius:3px; background:#4fc;
+                transition: width 0.4s ease; }
+
+    .timestamp { font-size:0.75em; color:#555; margin-top:20px;
+                 border-top:1px solid #333; padding-top:10px; }
   </style>
 </head>
 <body>
-  <h1>TinyML Face Attribute Detection — Live Preview</h1>
+  <h1>TinyML Face Detection System — Live Preview</h1>
   <div class="row">
     <div class="cam">
       <img id="cam" src="/frame.jpg" alt="Camera feed">
-      <div class="sub"><span class="dot"></span> Live from ArduCAM OV2640</div>
+      <div class="cam-label"><span class="dot"></span>Live from ArduCAM OV2640</div>
     </div>
+
     <div class="info">
-      <div style="color:#888;font-size:.9em">INFERENCE RESULT</div>
-      <div class="result" id="res">---</div>
-      <div class="sub" id="ts">---</div>
+      <div class="card-title">Detection Result</div>
+
+      <div class="status-line status-waiting" id="status">Waiting for first frame...</div>
+
+      <div class="field">
+        <div class="field-label">Recognized</div>
+        <div class="field-value highlight" id="recognized">---</div>
+      </div>
+
+      <div class="field">
+        <div class="field-label">Confidence</div>
+        <div class="field-value" id="confidence">---</div>
+        <div class="conf-bar-wrap">
+          <div class="conf-bar" id="conf-bar" style="width:0%"></div>
+        </div>
+      </div>
+
+      <div class="timestamp" id="ts">---</div>
     </div>
   </div>
 
   <script>
     function refresh() {
-      // Refresh camera frame
       document.getElementById('cam').src = '/frame.jpg?t=' + Date.now();
-      // Fetch result text
-      fetch('/result').then(r=>r.text()).then(t=>{
-        document.getElementById('res').textContent = t;
-        document.getElementById('ts').textContent = new Date().toLocaleTimeString();
-      });
+      fetch('/status').then(r=>r.json()).then(d=>{
+        const statusEl = document.getElementById('status');
+        const result = d.result || '';
+
+        if (result === 'Face Detected') {
+          statusEl.textContent = 'Face Detected';
+          statusEl.className = 'status-line status-detected';
+        } else if (result === 'No Face Detected') {
+          statusEl.textContent = 'No Face Detected';
+          statusEl.className = 'status-line status-noface';
+        } else {
+          statusEl.textContent = result || 'Waiting...';
+          statusEl.className = 'status-line status-waiting';
+        }
+
+        document.getElementById('recognized').textContent = d.recognized || '---';
+        document.getElementById('confidence').textContent = d.confidence || '---';
+
+        // Update confidence bar
+        const pct = parseInt((d.confidence || '0').replace('%','')) || 0;
+        document.getElementById('conf-bar').style.width = pct + '%';
+
+        document.getElementById('ts').textContent =
+          'Last updated: ' + new Date().toLocaleTimeString();
+      }).catch(()=>{});
     }
     setInterval(refresh, 600);   // refresh ~1.6 fps
   </script>
@@ -165,9 +234,19 @@ class PreviewHandler(BaseHTTPRequestHandler):
             if data:
                 self._send(200, 'image/jpeg', data)
             else:
-                # Grey placeholder while waiting
                 self._send(200, 'image/jpeg', self._placeholder())
 
+        elif self.path == '/status':
+            import json
+            with lock:
+                payload = json.dumps({
+                    'result':     latest_result,
+                    'recognized': latest_recognized,
+                    'confidence': latest_confidence,
+                })
+            self._send(200, 'application/json', payload.encode())
+
+        # Legacy /result endpoint kept for compatibility
         elif self.path == '/result':
             with lock:
                 res = latest_result
@@ -224,11 +303,9 @@ class PreviewHandler(BaseHTTPRequestHandler):
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
-    # Start serial reader in background
     t = threading.Thread(target=serial_reader, daemon=True)
     t.start()
 
-    # Start HTTP server
     server = HTTPServer(('localhost', HTTP_PORT), PreviewHandler)
     print(f"\n{'='*55}")
     print(f"  ArduCAM Live Preview Server")

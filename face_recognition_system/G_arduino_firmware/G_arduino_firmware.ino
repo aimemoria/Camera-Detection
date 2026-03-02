@@ -233,7 +233,9 @@ void runInference() {
   int stage_a = runStageA();
 
   if (stage_a <= 0) {
-    Serial.println("RESULT: NO PERSON DETECTED");
+    Serial.println("RESULT: No Face Detected");
+    Serial.println("RECOGNIZED: ---");
+    Serial.println("CONFIDENCE: ---");
     playBeepPattern(PATTERN_NO_PERSON);
     printSeparator();
     return;
@@ -247,26 +249,28 @@ void runInference() {
   int   attr_class = runStageB(&confidence);
 
   if (attr_class < 0) {
-    Serial.println("ERROR: Stage B inference failed");
+    Serial.println("RESULT: Face Detected");
+    Serial.println("RECOGNIZED: Error");
+    Serial.println("CONFIDENCE: ---");
     printSeparator();
     return;
   }
 
   printSeparator();
-  Serial.print("RESULT: ");
+  Serial.println("RESULT: Face Detected");
 
   if (confidence < UNKNOWN_THRESHOLD) {
-    Serial.print("UNKNOWN STATE (confidence too low: ");
-    Serial.print(confidence * 100.0f, 1);
-    Serial.println("%)");
-    // No distinct buzzer for unknown — silence after gate beep
+    Serial.println("RECOGNIZED: Unknown");
+    Serial.print("CONFIDENCE: ");
+    Serial.print((int)(confidence * 100.0f));
+    Serial.println("%");
   } else {
     const char* label = ATTRIBUTE_NAMES[attr_class];
-    Serial.print(label);
-    Serial.print(" (");
-    Serial.print(confidence * 100.0f, 1);
-    Serial.println("%)");
-
+    Serial.print("RECOGNIZED: ");
+    Serial.println(label);
+    Serial.print("CONFIDENCE: ");
+    Serial.print((int)(confidence * 100.0f));
+    Serial.println("%");
     playBeepPattern(ATTR_TO_PATTERN[attr_class]);
   }
 
