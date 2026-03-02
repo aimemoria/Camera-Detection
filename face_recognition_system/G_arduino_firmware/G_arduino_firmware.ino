@@ -233,8 +233,8 @@ void runInference() {
   int stage_a = runStageA();
 
   if (stage_a <= 0) {
-    Serial.println("RESULT: No Face Detected");
-    Serial.println("RECOGNIZED: ---");
+    Serial.println("RESULT: No face detected");
+    Serial.println("RECOGNIZED: No face recognized");
     Serial.println("CONFIDENCE: ---");
     playBeepPattern(PATTERN_NO_PERSON);
     printSeparator();
@@ -260,7 +260,7 @@ void runInference() {
   Serial.println("RESULT: Face Detected");
 
   if (confidence < UNKNOWN_THRESHOLD) {
-    Serial.println("RECOGNIZED: Unknown");
+    Serial.println("RECOGNIZED: Unknown person");
     Serial.print("CONFIDENCE: ");
     Serial.print((int)(confidence * 100.0f));
     Serial.println("%");

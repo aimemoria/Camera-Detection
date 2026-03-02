@@ -198,8 +198,8 @@ HTML_PAGE = """<!DOCTYPE html>
         if (result === 'Face Detected') {
           statusEl.textContent = 'Face Detected';
           statusEl.className = 'status-line status-detected';
-        } else if (result === 'No Face Detected') {
-          statusEl.textContent = 'No Face Detected';
+        } else if (result === 'No face detected') {
+          statusEl.textContent = 'No face detected';
           statusEl.className = 'status-line status-noface';
         } else {
           statusEl.textContent = result || 'Waiting...';
