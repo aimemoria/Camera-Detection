@@ -9,7 +9,7 @@ Usage:
     python3 preview_server.py
 
 Then in VS Code:
-    Ctrl+Shift+P  →  "Simple Browser: Show"  →  http://localhost:8080
+    Ctrl+Shift+P  →  "Simple Browser: Show"  →  http://localhost:7654
 
 The page auto-refreshes and shows:
   - Live camera feed (left)
@@ -22,9 +22,9 @@ import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 # ─── Config ───────────────────────────────────────────────────────────────────
-SERIAL_PORT = '/dev/cu.usbmodem11201'
+SERIAL_PORT = '/dev/cu.usbmodem1101'
 BAUD_RATE   = 115200
-HTTP_PORT   = 8080
+HTTP_PORT   = 7654
 
 FRAME_START = bytes([0xFF, 0xAA])
 FRAME_END   = bytes([0xFF, 0xBB])
@@ -60,11 +60,17 @@ def serial_reader():
                 continue
             buf.extend(chunk)
 
-            # Extract text lines (for inference results)
-            while b'\n' in buf:
+            # Extract text lines — only from region before any JPEG frame
+            # (JPEG data contains 0x0A bytes that would corrupt text parsing)
+            frame_pos = buf.find(FRAME_START)
+            text_end = frame_pos if frame_pos != -1 else len(buf)
+            while b'\n' in buf[:text_end]:
                 nl = buf.index(b'\n')
+                if nl >= text_end:
+                    break
                 line = buf[:nl].decode('utf-8', errors='replace').strip()
                 buf = buf[nl+1:]
+                text_end -= (nl + 1)
                 if line.startswith('RESULT:'):
                     with lock:
                         latest_result = line.replace('RESULT:', '').strip()
