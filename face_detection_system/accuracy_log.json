@@ -1,9 +1,38 @@
 [
   {
     "run": 1,
+    "date": "2026-02-28",
+    "model": "stage_a",
+    "description": "Person detection (binary: person vs no_person)",
+    "test_accuracy": 1.0,
+    "model_size_kb": null,
+    "notes": "Initial training — Stage A only. 201 test samples (30 no_person + 171 person), 0 errors."
+  },
+  {
+    "run": 2,
+    "date": "2026-02-28",
+    "model": "stage_b_v1",
+    "description": "Attribute detection (6 classes: grief, hair, happy, multiple, no_hair, sad)",
+    "test_accuracy": 0.9881,
+    "model_size_kb": null,
+    "notes": "First Stage B training. 168 test samples, 2 errors. Accuracy: 98.81%."
+  },
+  {
+    "run": 3,
+    "date": "2026-03-01",
+    "model": "stage_b_v2",
+    "description": "5-person face recognition (Colin Powell, Donald Rumsfeld, George W Bush, Gerhard Schroeder, Tony Blair)",
+    "test_accuracy": 0.8553,
+    "model_size_kb": null,
+    "notes": "Retrained Stage B as 5-person recognizer. 152 test samples, 22 errors. Accuracy: 85.52%."
+  },
+  {
+    "run": 4,
     "date": "2026-03-03",
+    "model": "stage_a",
+    "description": "Person detection only — Stage B removed. Retrained on balanced dataset (500 person + 500 no_person).",
     "test_accuracy": 1.0,
     "model_size_kb": 17.52,
-    "notes": ""
+    "notes": "Switched to detection-only system. Balanced dataset 500+500. INT8 quantized model 17.52 KB."
   }
 ]
