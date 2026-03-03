@@ -30,13 +30,13 @@ ls /dev/cu.usbmodem*
 
 ### 4. Upload firmware to Arduino
 ```bash
-cd face_recognition_system/G_arduino_firmware
+cd face_detection_system/G_arduino_firmware
 arduino-cli upload --fqbn arduino:mbed_nano:nano33ble --port /dev/cu.usbmodem1101 G_arduino_firmware.ino
 ```
 
 ### 5. Run the live preview
 ```bash
-cd ../   # back to face_recognition_system/
+cd ../   # back to face_detection_system/
 python3 preview_server.py
 ```
 
@@ -46,4 +46,4 @@ http://localhost:7654
 ```
 
 > **Note:** If your port is different from `usbmodem1101`, edit line 25 of
-> `face_recognition_system/preview_server.py` to match.
+> `face_detection_system/preview_server.py` to match.

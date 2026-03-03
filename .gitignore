@@ -10,13 +10,15 @@ venv/
 .venv/
 
 # Dataset and large files (too big for GitHub)
-face_recognition_system/dataset/
-face_recognition_system/processed/
+face_detection_system/dataset/
+face_detection_system/processed/
 
-# Trained model files (keep only quantized .h files)
-face_recognition_system/models/*.keras
-face_recognition_system/models/*.h5
-face_recognition_system/models/*.tflite
+# Trained model files (keep only quantized .h files and stats JSON)
+face_detection_system/models/*.keras
+face_detection_system/models/*.h5
+face_detection_system/models/*.tflite
+face_detection_system/models/*.png
+face_detection_system/models/logs/
 
 # macOS
 .DS_Store
