@@ -404,7 +404,7 @@ def save_processed_data(output_dir: str, stage_a_data: Dict):
 # =============================================================================
 def main():
     parser = argparse.ArgumentParser(
-        description='Preprocess and augment face recognition dataset'
+        description='Preprocess and augment face detection dataset'
     )
     parser.add_argument('--dataset_dir', type=str, default='dataset',
                         help='Path to raw dataset directory')

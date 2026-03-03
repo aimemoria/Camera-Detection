@@ -50,7 +50,7 @@ def load_data(data_dir: str, stage: str) -> Dict[str, Tuple[np.ndarray, np.ndarr
     
     Args:
         data_dir: Directory with processed NPZ files
-        stage: 'a' for Stage A, 'b' for Stage B
+        stage: 'a' for Stage A
         
     Returns:
         Dictionary with 'train', 'val', 'test' tuples
@@ -349,7 +349,7 @@ def plot_training_history(history: keras.callbacks.History,
 # Main Training Pipeline
 # =============================================================================
 def main():
-    parser = argparse.ArgumentParser(description='Train face recognition models')
+    parser = argparse.ArgumentParser(description='Train face detection model')
     parser.add_argument('--data_dir', type=str, default='processed',
                         help='Directory with preprocessed data')
     parser.add_argument('--output_dir', type=str, default='models',
