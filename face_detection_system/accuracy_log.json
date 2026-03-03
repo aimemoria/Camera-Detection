@@ -6,7 +6,7 @@
     "description": "Person detection (binary: person vs no_person)",
     "test_accuracy": 1.0,
     "model_size_kb": null,
-    "notes": "Initial training — Stage A only. 201 test samples (30 no_person + 171 person), 0 errors."
+    "notes": "Initial training \u2014 Stage A only. 201 test samples (30 no_person + 171 person), 0 errors."
   },
   {
     "run": 2,
@@ -30,9 +30,18 @@
     "run": 4,
     "date": "2026-03-03",
     "model": "stage_a",
-    "description": "Person detection only — Stage B removed. Retrained on balanced dataset (500 person + 500 no_person).",
+    "description": "Person detection only \u2014 Stage B removed. Retrained on balanced dataset (500 person + 500 no_person).",
     "test_accuracy": 1.0,
     "model_size_kb": 17.52,
     "notes": "Switched to detection-only system. Balanced dataset 500+500. INT8 quantized model 17.52 KB."
+  },
+  {
+    "run": 5,
+    "date": "2026-03-03",
+    "model": "stage_a",
+    "description": "Improved real-world robustness — 1000 diverse LFW faces + 500 synthetic + 500 CIFAR-10 real backgrounds. Augmentation: blur, extreme brightness, partial occlusion. 6 augmented copies per image.",
+    "test_accuracy": 1.0,
+    "model_size_kb": 17.52,
+    "notes": "9800 training samples (was ~2800). Test set 300 samples (150 per class). All correct. Model size unchanged at 17.52 KB."
   }
 ]

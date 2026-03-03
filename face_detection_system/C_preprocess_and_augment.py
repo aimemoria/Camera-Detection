@@ -174,9 +174,40 @@ class Augmentor:
         """Add Gaussian noise."""
         noise = np.random.normal(mean, std, img.shape)
         return np.clip(img + noise, 0, 1)
-    
-    def augment(self, img: np.ndarray, 
-                num_augmentations: int = 5) -> List[np.ndarray]:
+
+    def gaussian_blur(self, img: np.ndarray,
+                      sigma_range: tuple = (0.5, 2.0)) -> np.ndarray:
+        """Apply Gaussian blur to simulate defocus or motion blur."""
+        from PIL import Image as PILImage, ImageFilter
+        sigma = random.uniform(*sigma_range)
+        uint8_img = (img * 255).astype(np.uint8)
+        pil_img = PILImage.fromarray(uint8_img, mode='L')
+        blurred = pil_img.filter(ImageFilter.GaussianBlur(radius=sigma))
+        return np.array(blurred).astype(np.float32) / 255.0
+
+    def random_brightness_extreme(self, img: np.ndarray) -> np.ndarray:
+        """Apply extreme brightness: very dark (shadows) or very bright (backlight)."""
+        if random.random() > 0.5:
+            factor = random.uniform(0.2, 0.5)   # deep shadow
+        else:
+            factor = random.uniform(1.5, 2.0)   # harsh backlight
+        return np.clip(img * factor, 0, 1)
+
+    def random_occlusion(self, img: np.ndarray,
+                         min_frac: float = 0.10,
+                         max_frac: float = 0.30) -> np.ndarray:
+        """Black rectangle covering 10–30% of image — simulates partial face obstruction."""
+        result = img.copy()
+        h, w = img.shape
+        frac = random.uniform(min_frac, max_frac)
+        side = max(int((frac * h * w) ** 0.5), 8)
+        y1 = random.randint(0, h - side)
+        x1 = random.randint(0, w - side)
+        result[y1:y1+side, x1:x1+side] = 0.0
+        return result
+
+    def augment(self, img: np.ndarray,
+                num_augmentations: int = 6) -> List[np.ndarray]:
         """
         Generate multiple augmented versions of an image.
         
@@ -213,7 +244,17 @@ class Augmentor:
             
             if random.random() > 0.5:  # More frequent noise for robustness
                 aug_img = self.add_gaussian_noise(aug_img)
-            
+
+            # Real-world degradation augmentations
+            if random.random() > 0.6:   # ~40% — simulate defocus/motion blur
+                aug_img = self.gaussian_blur(aug_img)
+
+            if random.random() > 0.75:  # ~25% — simulate shadows/backlighting
+                aug_img = self.random_brightness_extreme(aug_img)
+
+            if random.random() > 0.8:   # ~20% — simulate partial face obstruction
+                aug_img = self.random_occlusion(aug_img)
+
             augmented.append(aug_img)
         
         return augmented
@@ -414,7 +455,7 @@ def main():
                         help='Use OpenCV face detection for cropping')
     parser.add_argument('--augment_train', action='store_true',
                         help='Apply data augmentation to training set')
-    parser.add_argument('--augmentations', type=int, default=3,
+    parser.add_argument('--augmentations', type=int, default=6,
                         help='Number of augmented copies per image')
     parser.add_argument('--train_ratio', type=float, default=0.7,
                         help='Fraction of data for training')
