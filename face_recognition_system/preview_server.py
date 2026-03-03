@@ -75,10 +75,6 @@ def serial_reader():
                     with lock:
                         latest_result = line.replace('RESULT:', '').strip()
                     print(f"  {line}")
-                elif line.startswith('RECOGNIZED:'):
-                    with lock:
-                        latest_recognized = line.replace('RECOGNIZED:', '').strip()
-                    print(f"  {line}")
                 elif line.startswith('CONFIDENCE:'):
                     with lock:
                         latest_confidence = line.replace('CONFIDENCE:', '').strip()
@@ -176,11 +172,6 @@ HTML_PAGE = """<!DOCTYPE html>
       <div class="card-title">Detection Result</div>
 
       <div class="status-line status-waiting" id="status">Waiting for first frame...</div>
-
-      <div class="field">
-        <div class="field-label">Recognized</div>
-        <div class="field-value highlight" id="recognized">---</div>
-      </div>
 
       <div class="field">
         <div class="field-label">Confidence</div>

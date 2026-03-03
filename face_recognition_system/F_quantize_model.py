@@ -399,93 +399,65 @@ def main():
         print(f"\nStage A model not found: {stage_a_keras}")
     
     # =================================
-    # Stage B Quantization
-    # =================================
-    stage_b_keras = model_path / 'stage_b_final.keras'
-    if stage_b_keras.exists():
-        print("\n" + "=" * 60)
-        print("STAGE B: Face Recognition Quantization")
-        print("=" * 60)
-        
-        # INT8 quantization
-        stats_b = convert_to_tflite_int8(
-            str(stage_b_keras),
-            str(data_path / 'stage_b_train.npz'),
-            str(output_path / 'stage_b_int8.tflite'),
-            args.num_calibration
-        )
-        all_stats['stage_b'] = stats_b
-        
-        # Generate C header
-        generate_c_header(
-            str(output_path / 'stage_b_int8.tflite'),
-            str(output_path / 'stage_b_model.h'),
-            'stage_b_model'
-        )
-        
-        # Validate
-        if args.validate:
-            val_b = validate_tflite_model(
-                str(output_path / 'stage_b_int8.tflite'),
-                str(data_path / 'stage_b_test.npz')
-            )
-            all_stats['stage_b_validation'] = val_b
-    else:
-        print(f"\nStage B model not found: {stage_b_keras}")
-    
-    # =================================
     # Summary
     # =================================
     print("\n" + "=" * 60)
     print("Quantization Summary")
     print("=" * 60)
-    
-    if 'stage_a' in all_stats and 'stage_b' in all_stats:
-        total_int8 = (all_stats['stage_a']['quantized_size_kb'] + 
-                      all_stats['stage_b']['quantized_size_kb'])
-        
-        print(f"\nModel Sizes (INT8):")
-        print(f"  Stage A: {all_stats['stage_a']['quantized_size_kb']:.2f} KB")
-        print(f"  Stage B: {all_stats['stage_b']['quantized_size_kb']:.2f} KB")
-        print(f"  Total:   {total_int8:.2f} KB")
-        
-        print(f"\nArduino Nano 33 BLE Sense Rev2 Flash: 1,024 KB")
-        print(f"Available for models: ~700 KB")
-        print(f"Model usage: {total_int8:.2f} KB ({total_int8/700*100:.1f}%)")
-        
+
+    if 'stage_a' in all_stats:
+        size_kb = all_stats['stage_a']['quantized_size_kb']
+        print(f"\nStage A model: {size_kb:.2f} KB (INT8)")
+        print(f"Arduino flash: 1,024 KB available")
+        print(f"Model usage:   {size_kb:.2f} KB ({size_kb/700*100:.1f}%)")
+
         if 'stage_a_validation' in all_stats:
-            print(f"\nStage A Validation Accuracy: {all_stats['stage_a_validation']['accuracy']*100:.2f}%")
-        if 'stage_b_validation' in all_stats:
-            print(f"Stage B Validation Accuracy: {all_stats['stage_b_validation']['accuracy']*100:.2f}%")
-    
-    # Save statistics
+            print(f"Validation accuracy: {all_stats['stage_a_validation']['accuracy']*100:.2f}%")
+
+    # Save quantization stats
+    def convert_numpy(obj):
+        if isinstance(obj, np.integer): return int(obj)
+        if isinstance(obj, np.floating): return float(obj)
+        if isinstance(obj, np.ndarray): return obj.tolist()
+        return obj
+
     with open(output_path / 'quantization_stats.json', 'w') as f:
-        # Convert numpy types to Python types for JSON serialization
-        def convert_numpy(obj):
-            if isinstance(obj, np.integer):
-                return int(obj)
-            elif isinstance(obj, np.floating):
-                return float(obj)
-            elif isinstance(obj, np.ndarray):
-                return obj.tolist()
-            return obj
-        
-        json_stats = json.loads(json.dumps(all_stats, default=convert_numpy))
-        json.dump(json_stats, f, indent=2)
-    
-    print(f"\nStatistics saved to: {output_path / 'quantization_stats.json'}")
-    
+        json.dump(json.loads(json.dumps(all_stats, default=convert_numpy)), f, indent=2)
+
+    # Append to accuracy log
+    log_path = Path(args.model_dir).parent / 'accuracy_log.json'
+    metrics_path = Path(args.model_dir) / 'stage_a_metrics.json'
+    if metrics_path.exists():
+        with open(metrics_path) as f:
+            metrics = json.load(f)
+
+        log = []
+        if log_path.exists():
+            with open(log_path) as f:
+                log = json.load(f)
+
+        from datetime import date
+        log.append({
+            "run": len(log) + 1,
+            "date": str(date.today()),
+            "test_accuracy": round(metrics.get('test_accuracy', 0), 4),
+            "model_size_kb": round(all_stats.get('stage_a', {}).get('quantized_size_kb', 0), 2),
+            "notes": ""
+        })
+
+        with open(log_path, 'w') as f:
+            json.dump(log, f, indent=2)
+        print(f"\nAccuracy log updated: {log_path}")
+
     print("\n" + "=" * 60)
     print("Quantization Complete!")
     print("=" * 60)
     print(f"\nGenerated files:")
     print(f"  - {output_path / 'stage_a_int8.tflite'}")
     print(f"  - {output_path / 'stage_a_model.h'}")
-    print(f"  - {output_path / 'stage_b_int8.tflite'}")
-    print(f"  - {output_path / 'stage_b_model.h'}")
     print(f"\nNext steps:")
-    print(f"  1. Copy .h files to Arduino sketch folder")
-    print(f"  2. Flash arduino firmware: G_arduino_firmware.ino")
+    print(f"  1. Copy stage_a_model.h to G_arduino_firmware/")
+    print(f"  2. Upload firmware: G_arduino_firmware.ino")
 
 
 if __name__ == '__main__':

@@ -286,84 +286,6 @@ def load_stage_a_data(dataset_dir: str,
     return np.array(images), np.array(labels)
 
 
-def load_stage_b_data(dataset_dir: str,
-                      use_face_detection: bool = False) -> Tuple[np.ndarray, np.ndarray, List[str]]:
-    """
-    Load Stage B (face recognition) data.
-    
-    Classes:
-        0: person1
-        1: person2
-        2: person3
-        3: person4
-        4: person5
-    """
-    print("\n=== Loading Stage B Data ===")
-    
-    stage_b_dir = Path(dataset_dir) / 'attributes'
-
-    images = []
-    labels = []
-    class_names = []
-
-    # Discover attribute class folders (any sub-directory name)
-    person_dirs = sorted([d for d in stage_b_dir.iterdir() if d.is_dir()])
-    
-    for idx, person_dir in enumerate(person_dirs):
-        class_names.append(person_dir.name)
-        count = 0
-        
-        for img_path in person_dir.glob('*'):
-            if img_path.suffix.lower() in ['.jpg', '.jpeg', '.png', '.bmp']:
-                try:
-                    img = load_image(str(img_path))
-                    if use_face_detection:
-                        img = detect_and_crop_face(img)
-                    img = resize_image(img)
-                    img = normalize_image(img)
-                    images.append(img)
-                    labels.append(idx)
-                    count += 1
-                except Exception as e:
-                    print(f"Warning: Could not process {img_path}: {e}")
-        
-        print(f"  Class {idx} ({person_dir.name}): {count} images")
-    
-    print(f"  Total: {len(images)} images, {len(class_names)} classes")
-    
-    return np.array(images), np.array(labels), class_names
-
-
-def load_unknown_test_data(dataset_dir: str,
-                           use_face_detection: bool = False) -> np.ndarray:
-    """Load unknown person test data for threshold tuning."""
-    print("\n=== Loading Unknown Test Data ===")
-    
-    unknown_dir = Path(dataset_dir) / 'unknown_test'
-    images = []
-    
-    if unknown_dir.exists():
-        for person_dir in unknown_dir.iterdir():
-            if person_dir.is_dir():
-                count = 0
-                for img_path in person_dir.glob('*'):
-                    if img_path.suffix.lower() in ['.jpg', '.jpeg', '.png', '.bmp']:
-                        try:
-                            img = load_image(str(img_path))
-                            if use_face_detection:
-                                img = detect_and_crop_face(img)
-                            img = resize_image(img)
-                            img = normalize_image(img)
-                            images.append(img)
-                            count += 1
-                        except Exception as e:
-                            print(f"Warning: Could not process {img_path}: {e}")
-                print(f"  {person_dir.name}: {count} images")
-    
-    print(f"  Total unknown test images: {len(images)}")
-    
-    return np.array(images) if images else np.array([])
-
 
 # =============================================================================
 # Train/Val/Test Split
@@ -445,72 +367,35 @@ def augment_dataset(X: np.ndarray, y: np.ndarray,
 # =============================================================================
 # Save Processed Data
 # =============================================================================
-def save_processed_data(output_dir: str,
-                        stage_a_data: Dict,
-                        stage_b_data: Dict,
-                        unknown_data: np.ndarray,
-                        class_names: List[str]):
-    """Save processed datasets as NPZ files."""
-    
+def save_processed_data(output_dir: str, stage_a_data: Dict):
+    """Save processed Stage A datasets as NPZ files."""
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
-    
-    # Save Stage A data
+
     np.savez(output_path / 'stage_a_train.npz',
-             X=stage_a_data['train'][0],
-             y=stage_a_data['train'][1])
+             X=stage_a_data['train'][0], y=stage_a_data['train'][1])
     np.savez(output_path / 'stage_a_val.npz',
-             X=stage_a_data['val'][0],
-             y=stage_a_data['val'][1])
+             X=stage_a_data['val'][0],   y=stage_a_data['val'][1])
     np.savez(output_path / 'stage_a_test.npz',
-             X=stage_a_data['test'][0],
-             y=stage_a_data['test'][1])
-    
+             X=stage_a_data['test'][0],  y=stage_a_data['test'][1])
+
     print(f"\nStage A saved:")
     print(f"  Train: {len(stage_a_data['train'][0])} samples")
-    print(f"  Val: {len(stage_a_data['val'][0])} samples")
-    print(f"  Test: {len(stage_a_data['test'][0])} samples")
-    
-    # Save Stage B data
-    np.savez(output_path / 'stage_b_train.npz',
-             X=stage_b_data['train'][0],
-             y=stage_b_data['train'][1])
-    np.savez(output_path / 'stage_b_val.npz',
-             X=stage_b_data['val'][0],
-             y=stage_b_data['val'][1])
-    np.savez(output_path / 'stage_b_test.npz',
-             X=stage_b_data['test'][0],
-             y=stage_b_data['test'][1])
-    
-    print(f"\nStage B saved:")
-    print(f"  Train: {len(stage_b_data['train'][0])} samples")
-    print(f"  Val: {len(stage_b_data['val'][0])} samples")
-    print(f"  Test: {len(stage_b_data['test'][0])} samples")
-    
-    # Save unknown test data
-    if len(unknown_data) > 0:
-        np.savez(output_path / 'unknown_test.npz', X=unknown_data)
-        print(f"\nUnknown test: {len(unknown_data)} samples")
-    
-    # Save metadata
+    print(f"  Val:   {len(stage_a_data['val'][0])} samples")
+    print(f"  Test:  {len(stage_a_data['test'][0])} samples")
+
     metadata = {
         'img_size': IMG_SIZE,
         'num_classes_stage_a': 2,
-        'num_classes_stage_b': len(class_names),
         'class_names_stage_a': ['no_person', 'person'],
-        'class_names_stage_b': class_names,
         'stage_a_train_size': len(stage_a_data['train'][0]),
-        'stage_a_val_size': len(stage_a_data['val'][0]),
-        'stage_a_test_size': len(stage_a_data['test'][0]),
-        'stage_b_train_size': len(stage_b_data['train'][0]),
-        'stage_b_val_size': len(stage_b_data['val'][0]),
-        'stage_b_test_size': len(stage_b_data['test'][0]),
-        'unknown_test_size': len(unknown_data)
+        'stage_a_val_size':   len(stage_a_data['val'][0]),
+        'stage_a_test_size':  len(stage_a_data['test'][0]),
     }
-    
+
     with open(output_path / 'metadata.json', 'w') as f:
         json.dump(metadata, f, indent=2)
-    
+
     print(f"\nMetadata saved to: {output_path / 'metadata.json'}")
 
 
@@ -540,89 +425,48 @@ def main():
     args = parser.parse_args()
     
     print("=" * 60)
-    print("Face Recognition Data Preprocessing Pipeline")
+    print("Face Detection Data Preprocessing Pipeline")
     print("=" * 60)
     print(f"\nConfiguration:")
     print(f"  Dataset directory: {args.dataset_dir}")
-    print(f"  Output directory: {args.output_dir}")
-    print(f"  Image size: {IMG_SIZE}x{IMG_SIZE}")
-    print(f"  Face detection: {args.use_face_detection}")
-    print(f"  Augmentation: {args.augment_train}")
-    print(f"  Split: {args.train_ratio}/{args.val_ratio}/{args.test_ratio}")
-    
-    # Load Stage A data
+    print(f"  Output directory:  {args.output_dir}")
+    print(f"  Image size:        {IMG_SIZE}x{IMG_SIZE}")
+    print(f"  Face detection:    {args.use_face_detection}")
+    print(f"  Augmentation:      {args.augment_train}")
+    print(f"  Split:             {args.train_ratio}/{args.val_ratio}/{args.test_ratio}")
+
     X_a, y_a = load_stage_a_data(args.dataset_dir, args.use_face_detection)
-    
+
     if len(X_a) == 0:
         print("\nERROR: No Stage A data found!")
-        print("Please ensure your dataset structure matches the protocol in B_DATA_COLLECTION_PROTOCOL.md")
+        print("Run: python3 download_larger_dataset.py")
         return
-    
-    # Load Stage B data
-    X_b, y_b, class_names = load_stage_b_data(args.dataset_dir, args.use_face_detection)
-    
-    if len(X_b) == 0:
-        print("\nERROR: No Stage B data found!")
-        print("Please ensure your dataset structure matches the protocol in B_DATA_COLLECTION_PROTOCOL.md")
-        return
-    
-    # Load unknown test data
-    X_unknown = load_unknown_test_data(args.dataset_dir, args.use_face_detection)
-    
-    # Split Stage A data
+
     print("\n=== Splitting Stage A Data ===")
-    stage_a_splits = split_data(X_a, y_a, 
+    stage_a_splits = split_data(X_a, y_a,
                                 args.train_ratio, args.val_ratio, args.test_ratio)
     print(f"  Train: {len(stage_a_splits['train'][0])}")
-    print(f"  Val: {len(stage_a_splits['val'][0])}")
-    print(f"  Test: {len(stage_a_splits['test'][0])}")
-    
-    # Split Stage B data
-    print("\n=== Splitting Stage B Data ===")
-    stage_b_splits = split_data(X_b, y_b,
-                                args.train_ratio, args.val_ratio, args.test_ratio)
-    print(f"  Train: {len(stage_b_splits['train'][0])}")
-    print(f"  Val: {len(stage_b_splits['val'][0])}")
-    print(f"  Test: {len(stage_b_splits['test'][0])}")
-    
-    # Apply augmentation if requested
+    print(f"  Val:   {len(stage_a_splits['val'][0])}")
+    print(f"  Test:  {len(stage_a_splits['test'][0])}")
+
     if args.augment_train:
         X_train_a, y_train_a = augment_dataset(
-            stage_a_splits['train'][0], 
+            stage_a_splits['train'][0],
             stage_a_splits['train'][1],
             args.augmentations
         )
         stage_a_splits['train'] = (X_train_a, y_train_a)
-        
-        X_train_b, y_train_b = augment_dataset(
-            stage_b_splits['train'][0],
-            stage_b_splits['train'][1],
-            args.augmentations
-        )
-        stage_b_splits['train'] = (X_train_b, y_train_b)
-    
-    # Reshape for CNN input (add channel dimension)
+
     for key in stage_a_splits:
         X, y = stage_a_splits[key]
         stage_a_splits[key] = (X.reshape(-1, IMG_SIZE, IMG_SIZE, 1), y)
-    
-    for key in stage_b_splits:
-        X, y = stage_b_splits[key]
-        stage_b_splits[key] = (X.reshape(-1, IMG_SIZE, IMG_SIZE, 1), y)
-    
-    if len(X_unknown) > 0:
-        X_unknown = X_unknown.reshape(-1, IMG_SIZE, IMG_SIZE, 1)
-    
-    # Save processed data
-    save_processed_data(args.output_dir, stage_a_splits, stage_b_splits,
-                        X_unknown, class_names)
-    
+
+    save_processed_data(args.output_dir, stage_a_splits)
+
     print("\n" + "=" * 60)
     print("Preprocessing Complete!")
     print("=" * 60)
-    print(f"\nNext steps:")
-    print(f"  1. Run training: python D_model_architecture.py")
-    print(f"  2. Or run full pipeline: python E_train_model.py --data_dir {args.output_dir}")
+    print(f"\nNext step: python3 E_train_model.py --data_dir {args.output_dir}")
 
 
 if __name__ == '__main__':
