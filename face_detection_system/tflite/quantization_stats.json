@@ -7,5 +7,15 @@
     "original_size_kb": 211.00390625,
     "quantized_size_kb": 17.5234375,
     "compression_ratio": 12.041239411502453
+  },
+  "stage_a_validation": {
+    "model_path": "tflite/stage_a_int8.tflite",
+    "num_samples": 100,
+    "correct": 100,
+    "accuracy": 1.0,
+    "input_scale": 0.003921568859368563,
+    "input_zero_point": -128,
+    "output_scale": 0.00390625,
+    "output_zero_point": -128
   }
 }
