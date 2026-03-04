@@ -5,7 +5,7 @@
     "no_person",
     "person"
   ],
-  "stage_a_train_size": 9800,
-  "stage_a_val_size": 300,
-  "stage_a_test_size": 300
+  "stage_a_train_size": 14210,
+  "stage_a_val_size": 435,
+  "stage_a_test_size": 435
 }

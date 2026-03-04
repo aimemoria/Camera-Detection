@@ -3,8 +3,11 @@
 Download and generate Stage A dataset for face detection.
 
 Stage A classes:
-  person     — LFW face images (1000 diverse images)
-  no_person  — synthetic backgrounds (500) + CIFAR-10 real scenes (500)
+  person     — LFW (1000) + Olivetti AT&T Faces (400)
+  no_person  — synthetic backgrounds (500) + CIFAR-10 (1000)
+
+CIFAR-10 is loaded from the local Keras cache (~/.keras/datasets/) using
+plain pickle — no TensorFlow import, no GPU initialisation.
 
 Usage:
     python3 download_larger_dataset.py
@@ -20,10 +23,11 @@ STAGE_A_DIR   = BASE_DIR / "stage_a"
 PERSON_DIR    = STAGE_A_DIR / "person"
 NO_PERSON_DIR = STAGE_A_DIR / "no_person"
 
-IMG_SIZE     = 96
-MAX_PERSONS  = 1000  # person images (was 500)
-MAX_BG       = 500   # synthetic no_person images
-MAX_CIFAR_BG = 500   # real-world no_person images from CIFAR-10
+IMG_SIZE      = 96
+MAX_PERSONS   = 1000  # LFW person images
+MAX_UTK       = 400   # Olivetti AT&T Faces (all 400 available)
+MAX_BG        = 500   # synthetic no_person images
+MAX_CIFAR_BG  = 1000  # CIFAR-10 real-world no_person images (loaded via pickle)
 
 
 def save_gray(arr: np.ndarray, path: Path):
@@ -102,28 +106,53 @@ def generate_backgrounds():
 
 def download_cifar10_backgrounds():
     """
-    Download CIFAR-10 and extract non-person classes as real background images.
+    Load CIFAR-10 from the local Keras pickle cache and extract non-person classes
+    as real background images.  Uses plain pickle — no TensorFlow import.
 
     Uses classes: 0=airplane, 1=automobile, 8=ship, 9=truck
-    These are real-world photos with natural textures and scene content,
-    giving the model exposure to what a real camera sees as 'no face'.
+    Images are 32x32 RGB — upsampled to 96x96 grayscale via LANCZOS.
+    The soft upsampled textures resemble low-quality embedded camera output,
+    which is beneficial for robustness training.
 
-    CIFAR-10 images are 32x32 RGB — upsampled to 96x96 grayscale via LANCZOS.
-    The upsampling produces soft, blurry textures that resemble low-quality
-    embedded camera output, which is beneficial for robustness training.
+    If the cache is missing, downloads CIFAR-10 via urllib (~162 MB).
     """
-    import tensorflow as tf
+    import pickle
+    import urllib.request
+    import tarfile
 
-    print("  Downloading CIFAR-10 real-world backgrounds ...")
-    (x_train, y_train), (x_test, y_test) = tf.keras.datasets.cifar10.load_data()
+    cifar_dir = Path.home() / '.keras/datasets/cifar-10-batches-py-target/cifar-10-batches-py'
 
-    x_all = np.concatenate([x_train, x_test], axis=0)
-    y_all = np.concatenate([y_train, y_test], axis=0).flatten()
+    if not cifar_dir.exists():
+        print("  CIFAR-10 not cached — downloading via urllib (~162 MB) ...")
+        url = 'https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz'
+        tmp = Path('/tmp/cifar10.tar.gz')
+        urllib.request.urlretrieve(url, tmp)
+        cifar_dir.parent.mkdir(parents=True, exist_ok=True)
+        with tarfile.open(tmp) as tar:
+            tar.extractall(cifar_dir.parent.parent)
+        tmp.unlink(missing_ok=True)
+        print("  CIFAR-10 downloaded and extracted.")
+    else:
+        print("  Loading CIFAR-10 from local cache ...")
+
+    batch_files = ['data_batch_1', 'data_batch_2', 'data_batch_3',
+                   'data_batch_4', 'data_batch_5', 'test_batch']
+    all_data, all_labels = [], []
+    for name in batch_files:
+        with open(cifar_dir / name, 'rb') as f:
+            batch = pickle.load(f, encoding='bytes')
+        all_data.append(batch[b'data'])
+        all_labels.extend(batch[b'labels'])
+
+    # Reshape (N, 3072) → (N, 32, 32, 3)
+    x_all = np.concatenate(all_data, axis=0).reshape(-1, 3, 32, 32).transpose(0, 2, 3, 1)
+    y_all = np.array(all_labels)
 
     # Non-person CIFAR-10 classes only
     non_person_classes = {0, 1, 8, 9}  # airplane, automobile, ship, truck
     mask = np.isin(y_all, list(non_person_classes))
     x_bg = x_all[mask]
+    print(f"  CIFAR-10 non-face images available: {len(x_bg)}")
 
     rng = np.random.default_rng(seed=123)
     indices = rng.choice(len(x_bg), size=MAX_CIFAR_BG, replace=False)
@@ -138,6 +167,36 @@ def download_cifar10_backgrounds():
     return MAX_CIFAR_BG
 
 
+def download_olivetti_persons():
+    """
+    Download Olivetti AT&T Faces via sklearn.
+
+    400 images of 40 distinct subjects (10 photos each):
+    - Taken at different times with varying lighting conditions
+    - Different facial expressions (open/closed eyes, smiling/not smiling)
+    - Glasses / no glasses variation
+    - 64x64 grayscale — upsampled to 96x96
+
+    Supplements LFW by adding subjects photographed in a structured
+    study environment (different from press/celebrity photos in LFW).
+    """
+    from sklearn.datasets import fetch_olivetti_faces
+
+    print("  Downloading Olivetti AT&T Faces (sklearn) ...")
+    olivetti = fetch_olivetti_faces(shuffle=True, random_state=42)
+    images = olivetti.images  # (400, 64, 64) float32 [0,1]
+    print(f"  Olivetti loaded: {len(images)} images, {len(np.unique(olivetti.target))} subjects")
+
+    count = min(len(images), MAX_UTK)
+    for i in range(count):
+        arr = (images[i] * 255).astype(np.uint8)
+        save_gray(arr, PERSON_DIR / f"olivetti_{i+1:04d}.png")
+
+    print(f"  Saved {count} Olivetti images → stage_a/person/")
+    return count
+
+
+
 def main():
     print("=" * 55)
     print("  Stage A Dataset Setup — Face Detection Only")
@@ -149,21 +208,23 @@ def main():
     NO_PERSON_DIR.mkdir(parents=True, exist_ok=True)
 
     persons      = download_lfw_persons()
+    utk_count    = download_olivetti_persons()
     bg_count     = generate_backgrounds()
     cifar_count  = download_cifar10_backgrounds()
 
+    person_total    = persons + utk_count
     no_person_total = bg_count + cifar_count
 
     print("\n" + "=" * 55)
     print("Dataset Ready!")
     print("=" * 55)
-    print(f"  person:    {persons} images")
+    print(f"  person:    {person_total} images ({persons} LFW + {utk_count} Olivetti)")
     print(f"  no_person: {no_person_total} images ({bg_count} synthetic + {cifar_count} CIFAR-10)")
-    print(f"  Total:     {persons + no_person_total} images (balanced)")
+    print(f"  Total:     {person_total + no_person_total} images")
     print("\nNext steps:")
     print("  python3 C_preprocess_and_augment.py --dataset_dir dataset --output_dir processed --augment_train --augmentations 6")
     print("  python3 E_train_model.py --data_dir processed --output_dir models")
-    print("  python3 F_quantize_model.py --model_dir models --data_dir processed")
+    print("  python3 F_quantize_model.py --model_dir models --data_dir processed --validate")
 
 
 if __name__ == "__main__":

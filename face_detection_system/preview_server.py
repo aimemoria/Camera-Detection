@@ -3,44 +3,47 @@
 Live Camera Preview Server for ArduCAM + Arduino Nano 33 BLE Sense
 ===================================================================
 Reads JPEG frames streamed from the Arduino over Serial and serves
-them as an MJPEG HTTP stream that VS Code Simple Browser can display.
+them as a true MJPEG stream.  No page-refresh polling — frames are
+pushed directly to the browser as they arrive.
 
 Usage:
     python3 preview_server.py
 
-Then in VS Code:
-    Ctrl+Shift+P  →  "Simple Browser: Show"  →  http://localhost:7654
-
-The page auto-refreshes and shows:
-  - Live camera feed (left)
-  - Face detection result: status / recognized / confidence (right)
+Then open:  http://localhost:7654
 """
 
 import serial
 import threading
 import time
+import cv2
+import numpy as np
+import socketserver
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 # ─── Config ───────────────────────────────────────────────────────────────────
-SERIAL_PORT = '/dev/cu.usbmodem1101'
-BAUD_RATE   = 115200
-HTTP_PORT   = 7654
+SERIAL_PORT   = '/dev/cu.usbmodem1101'
+BAUD_RATE     = 115200
+HTTP_PORT     = 7654
+DISPLAY_WIDTH = 480   # px — frames are scaled to this width
 
 FRAME_START = bytes([0xFF, 0xAA])
 FRAME_END   = bytes([0xFF, 0xBB])
+
+# Haar cascade for face bounding-box overlay
+_cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+face_cascade  = cv2.CascadeClassifier(_cascade_path)
 # ──────────────────────────────────────────────────────────────────────────────
 
-# Shared state (updated by serial thread, read by HTTP thread)
+# Shared state (written by serial thread, read by HTTP threads)
 latest_jpeg       = None
-latest_result     = "Waiting for first frame..."
-latest_recognized = "---"
+latest_result     = "Waiting..."
 latest_confidence = "---"
 lock              = threading.Lock()
 
 
 # ─── Serial Reader Thread ─────────────────────────────────────────────────────
 def serial_reader():
-    global latest_jpeg, latest_result, latest_recognized, latest_confidence
+    global latest_jpeg, latest_result, latest_confidence
 
     print(f"Opening serial port {SERIAL_PORT} ...")
     try:
@@ -60,17 +63,17 @@ def serial_reader():
                 continue
             buf.extend(chunk)
 
-            # Extract text lines — only from region before any JPEG frame
-            # (JPEG data contains 0x0A bytes that would corrupt text parsing)
+            # Parse text lines only from the region before any JPEG marker
+            # (JPEG binary data contains 0x0A bytes that corrupt text parsing)
             frame_pos = buf.find(FRAME_START)
-            text_end = frame_pos if frame_pos != -1 else len(buf)
+            text_end  = frame_pos if frame_pos != -1 else len(buf)
             while b'\n' in buf[:text_end]:
                 nl = buf.index(b'\n')
                 if nl >= text_end:
                     break
-                line = buf[:nl].decode('utf-8', errors='replace').strip()
-                buf = buf[nl+1:]
-                text_end -= (nl + 1)
+                line     = buf[:nl].decode('utf-8', errors='replace').strip()
+                buf      = buf[nl + 1:]
+                text_end -= nl + 1
                 if line.startswith('RESULT:'):
                     with lock:
                         latest_result = line.replace('RESULT:', '').strip()
@@ -80,31 +83,26 @@ def serial_reader():
                         latest_confidence = line.replace('CONFIDENCE:', '').strip()
                     print(f"  {line}")
 
-            # Extract JPEG frames
+            # Extract complete JPEG frames
             while True:
                 start = buf.find(FRAME_START)
                 if start == -1:
                     break
                 if len(buf) < start + 6:
-                    break  # Need 2 marker + 4 length bytes
-
-                length = int.from_bytes(buf[start+2:start+6], 'little')
+                    break
+                length     = int.from_bytes(buf[start + 2:start + 6], 'little')
                 end_needed = start + 6 + length + 2
-
                 if len(buf) < end_needed:
-                    break  # Frame not fully received yet
-
-                end_marker = buf[start+6+length : start+6+length+2]
+                    break
+                end_marker = buf[start + 6 + length: start + 6 + length + 2]
                 if end_marker == FRAME_END:
-                    jpeg_data = bytes(buf[start+6 : start+6+length])
                     with lock:
-                        latest_jpeg = jpeg_data
+                        latest_jpeg = bytes(buf[start + 6: start + 6 + length])
                     buf = buf[end_needed:]
                 else:
-                    # Bad frame, skip one byte and retry
-                    buf = buf[start+1:]
+                    buf = buf[start + 1:]   # bad frame — skip one byte and retry
 
-            # Prevent buffer growing indefinitely (keep last 200KB)
+            # Keep buffer bounded (200 KB max)
             if len(buf) > 200_000:
                 buf = buf[-100_000:]
 
@@ -113,144 +111,205 @@ def serial_reader():
             time.sleep(1)
 
 
-# ─── HTTP Server ──────────────────────────────────────────────────────────────
-HTML_PAGE = """<!DOCTYPE html>
-<html>
+# ─── Frame Annotation ─────────────────────────────────────────────────────────
+def annotate_frame(jpeg_data, result, confidence):
+    """
+    Decode the JPEG, scale to display width, overlay:
+      - green bounding box around detected face (Haar cascade)
+      - status bar at the bottom of the frame
+    Re-encode and return as JPEG bytes.
+    """
+    arr = np.frombuffer(jpeg_data, np.uint8)
+    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if img is None:
+        return jpeg_data
+
+    # Scale to display width
+    h, w   = img.shape[:2]
+    scale  = DISPLAY_WIDTH / w
+    new_h  = max(1, int(h * scale))
+    img    = cv2.resize(img, (DISPLAY_WIDTH, new_h), interpolation=cv2.INTER_LANCZOS4)
+    h, w   = img.shape[:2]
+
+    is_detected = (result == 'Face Detected')
+
+    # Green bounding box — only when Arduino reports a face
+    if is_detected:
+        gray  = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        faces = face_cascade.detectMultiScale(
+            gray, scaleFactor=1.1, minNeighbors=3, minSize=(30, 30)
+        )
+        for (fx, fy, fw, fh) in faces:
+            cv2.rectangle(img, (fx, fy), (fx + fw, fy + fh), (0, 210, 80), 2)
+
+    # Semi-transparent status bar at the bottom
+    bar_h   = 36
+    overlay = img.copy()
+    cv2.rectangle(overlay, (0, h - bar_h), (w, h), (0, 0, 0), -1)
+    cv2.addWeighted(overlay, 0.55, img, 0.45, 0, img)
+
+    if is_detected:
+        label = 'Face Detected'
+        if confidence != '---':
+            label += f'   {confidence}'
+        color = (60, 215, 100)          # green
+    elif result.startswith('Waiting'):
+        label = 'Waiting for frame...'
+        color = (100, 100, 100)         # grey
+    else:
+        label = 'No Face Detected'
+        color = (60, 145, 255)          # orange
+
+    cv2.putText(img, label, (10, h - 11),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.58, color, 1, cv2.LINE_AA)
+
+    _, buf = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 88])
+    return buf.tobytes()
+
+
+# ─── HTML Page ────────────────────────────────────────────────────────────────
+HTML_PAGE = b"""\
+<!DOCTYPE html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Face Detection — Live Preview</title>
+  <title>Face Detection \xe2\x80\x94 Live Preview</title>
   <style>
-    * { box-sizing: border-box; }
-    body  { background:#111; color:#eee; font-family:monospace; margin:0;
-            display:flex; flex-direction:column; align-items:center; padding:20px; }
-    h1    { color:#4fc; margin-bottom:16px; font-size:1.2em; letter-spacing:1px; }
-    .row  { display:flex; gap:30px; align-items:flex-start; }
-    .cam  { display:flex; flex-direction:column; align-items:center; }
-    img   { border:2px solid #4fc; image-rendering:pixelated;
-            width:480px; height:auto; }
-    .cam-label { font-size:0.8em; color:#888; margin-top:8px; }
-    .dot  { display:inline-block; width:8px; height:8px; border-radius:50%;
-            background:#4fc; animation:pulse 1s infinite; margin-right:5px; }
-    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-    /* Result card */
-    .info { background:#1a1a1a; border:1px solid #4fc; border-radius:8px;
-            padding:24px; min-width:300px; }
-    .card-title { font-size:0.75em; color:#666; letter-spacing:2px;
-                  text-transform:uppercase; margin-bottom:16px; }
+    body {
+      background: #0d0d0d;
+      color: #c0c0c0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 22px;
+      padding: 40px 20px;
+    }
 
-    .status-line { font-size:1.1em; font-weight:bold; padding:8px 12px;
-                   border-radius:4px; margin-bottom:16px; text-align:center; }
-    .status-detected   { background:#0a3320; color:#4fc; border:1px solid #4fc; }
-    .status-noface     { background:#2a1a00; color:#f80; border:1px solid #f80; }
-    .status-waiting    { background:#222; color:#666; border:1px solid #444; }
+    h1 {
+      font-size: 0.8rem;
+      font-weight: 400;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #484848;
+    }
 
-    .field { margin-bottom:12px; }
-    .field-label { font-size:0.7em; color:#666; letter-spacing:1px;
-                   text-transform:uppercase; margin-bottom:3px; }
-    .field-value { font-size:1.4em; color:#fff; font-weight:bold; }
-    .field-value.highlight { color:#4fc; }
+    .preview {
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid #1e1e1e;
+      box-shadow: 0 16px 56px rgba(0, 0, 0, 0.75);
+    }
 
-    .conf-bar-wrap { background:#333; border-radius:3px; height:6px;
-                     margin-top:6px; overflow:hidden; }
-    .conf-bar { height:6px; border-radius:3px; background:#4fc;
-                transition: width 0.4s ease; }
+    .preview img {
+      display: block;
+      width: 480px;
+      height: auto;
+    }
 
-    .timestamp { font-size:0.75em; color:#555; margin-top:20px;
-                 border-top:1px solid #333; padding-top:10px; }
+    footer {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.7rem;
+      color: #333;
+      letter-spacing: 0.07em;
+    }
+
+    .live-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #2d6e3a;
+      animation: pulse 1.6s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.2; }
+    }
   </style>
 </head>
 <body>
-  <h1>TinyML Face Detection System — Live Preview</h1>
-  <div class="row">
-    <div class="cam">
-      <img id="cam" src="/frame.jpg" alt="Camera feed">
-      <div class="cam-label"><span class="dot"></span>Live from ArduCAM OV2640</div>
-    </div>
+  <h1>TinyML Face Detection &mdash; Live Preview</h1>
 
-    <div class="info">
-      <div class="card-title">Detection Result</div>
-
-      <div class="status-line status-waiting" id="status">Waiting for first frame...</div>
-
-      <div class="field">
-        <div class="field-label">Confidence</div>
-        <div class="field-value" id="confidence">---</div>
-        <div class="conf-bar-wrap">
-          <div class="conf-bar" id="conf-bar" style="width:0%"></div>
-        </div>
-      </div>
-
-      <div class="timestamp" id="ts">---</div>
-    </div>
+  <div class="preview">
+    <img src="/stream.mjpeg" alt="Live camera feed">
   </div>
 
-  <script>
-    function refresh() {
-      document.getElementById('cam').src = '/frame.jpg?t=' + Date.now();
-      fetch('/status').then(r=>r.json()).then(d=>{
-        const statusEl = document.getElementById('status');
-        const result = d.result || '';
-
-        if (result === 'Face Detected') {
-          statusEl.textContent = 'Face Detected';
-          statusEl.className = 'status-line status-detected';
-        } else if (result === 'No face detected') {
-          statusEl.textContent = 'No face detected';
-          statusEl.className = 'status-line status-noface';
-        } else {
-          statusEl.textContent = result || 'Waiting...';
-          statusEl.className = 'status-line status-waiting';
-        }
-
-        document.getElementById('recognized').textContent = d.recognized || '---';
-        document.getElementById('confidence').textContent = d.confidence || '---';
-
-        // Update confidence bar
-        const pct = parseInt((d.confidence || '0').replace('%','')) || 0;
-        document.getElementById('conf-bar').style.width = pct + '%';
-
-        document.getElementById('ts').textContent =
-          'Last updated: ' + new Date().toLocaleTimeString();
-      }).catch(()=>{});
-    }
-    setInterval(refresh, 600);   // refresh ~1.6 fps
-  </script>
+  <footer>
+    <div class="live-dot"></div>
+    ArduCAM OV2640 &nbsp;&middot;&nbsp; Arduino Nano 33 BLE Sense Rev2
+  </footer>
 </body>
-</html>"""
+</html>
+"""
 
 
+# ─── HTTP Handler ─────────────────────────────────────────────────────────────
 class PreviewHandler(BaseHTTPRequestHandler):
+
     def do_GET(self):
         if self.path == '/' or self.path.startswith('/?'):
-            self._send(200, 'text/html', HTML_PAGE.encode())
+            self._send(200, 'text/html; charset=utf-8', HTML_PAGE)
+
+        elif self.path == '/stream.mjpeg':
+            self._stream_mjpeg()
 
         elif self.path.startswith('/frame.jpg'):
+            # Single-frame fallback (kept for compatibility)
             with lock:
                 data = latest_jpeg
-            if data:
-                self._send(200, 'image/jpeg', data)
-            else:
-                self._send(200, 'image/jpeg', self._placeholder())
+            self._send(200, 'image/jpeg', data if data else self._placeholder())
 
         elif self.path == '/status':
             import json
             with lock:
                 payload = json.dumps({
                     'result':     latest_result,
-                    'recognized': latest_recognized,
                     'confidence': latest_confidence,
                 })
             self._send(200, 'application/json', payload.encode())
 
-        # Legacy /result endpoint kept for compatibility
-        elif self.path == '/result':
-            with lock:
-                res = latest_result
-            self._send(200, 'text/plain', res.encode())
-
         else:
             self._send(404, 'text/plain', b'Not found')
+
+    def _stream_mjpeg(self):
+        """Push annotated JPEG frames as a multipart MJPEG stream."""
+        self.send_response(200)
+        self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=frame')
+        self.send_header('Cache-Control', 'no-cache, no-store')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+
+        last_frame = None
+        try:
+            while True:
+                with lock:
+                    jpeg   = latest_jpeg
+                    result = latest_result
+                    conf   = latest_confidence
+
+                if jpeg is not None and jpeg is not last_frame:
+                    last_frame = jpeg
+                    annotated  = annotate_frame(jpeg, result, conf)
+                    chunk = (
+                        b'--frame\r\n'
+                        b'Content-Type: image/jpeg\r\n'
+                        b'Content-Length: ' + str(len(annotated)).encode() + b'\r\n\r\n'
+                        + annotated + b'\r\n'
+                    )
+                    self.wfile.write(chunk)
+                    self.wfile.flush()
+
+                time.sleep(0.01)   # 100 Hz poll; only sends on new frame
+
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     def _send(self, code, ctype, body):
         self.send_response(code)
@@ -262,7 +321,7 @@ class PreviewHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _placeholder(self):
-        """1x1 grey JPEG as placeholder before first frame arrives."""
+        """1×1 grey JPEG placeholder before the first frame arrives."""
         return bytes([
             0xff,0xd8,0xff,0xe0,0x00,0x10,0x4a,0x46,0x49,0x46,0x00,0x01,
             0x01,0x00,0x00,0x01,0x00,0x01,0x00,0x00,0xff,0xdb,0x00,0x43,
@@ -295,7 +354,13 @@ class PreviewHandler(BaseHTTPRequestHandler):
         ])
 
     def log_message(self, *args):
-        pass  # suppress request logs
+        pass  # suppress per-request logs
+
+
+# ─── Threaded Server ──────────────────────────────────────────────────────────
+class ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
+    """Each MJPEG client gets its own thread — no head-of-line blocking."""
+    daemon_threads = True
 
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
@@ -303,7 +368,7 @@ if __name__ == '__main__':
     t = threading.Thread(target=serial_reader, daemon=True)
     t.start()
 
-    server = HTTPServer(('localhost', HTTP_PORT), PreviewHandler)
+    server = ThreadedHTTPServer(('localhost', HTTP_PORT), PreviewHandler)
     print(f"\n{'='*55}")
     print(f"  ArduCAM Live Preview Server")
     print(f"{'='*55}")

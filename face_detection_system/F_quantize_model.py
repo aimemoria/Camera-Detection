@@ -16,6 +16,7 @@ Usage:
 
 import os
 import json
+import tempfile
 import numpy as np
 import tensorflow as tf
 from pathlib import Path
@@ -89,28 +90,30 @@ def convert_to_tflite_int8(model_path: str,
     
     # Load Keras model
     model = tf.keras.models.load_model(model_path)
-    
-    # Create TFLite converter
-    converter = tf.lite.TFLiteConverter.from_keras_model(model)
-    
-    # Enable INT8 quantization
-    converter.optimizations = [tf.lite.Optimize.DEFAULT]
-    
-    # Set representative dataset for calibration
+
+    # Build representative dataset
     rep_dataset = create_representative_dataset(
-        rep_dataset_path, 
+        rep_dataset_path,
         num_calibration_samples
     )
-    converter.representative_dataset = rep_dataset
-    
-    # Force full integer quantization
-    converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
-    converter.inference_input_type = tf.int8
-    converter.inference_output_type = tf.int8
-    
-    # Convert
-    print("Converting to INT8 TFLite...")
-    tflite_model = converter.convert()
+
+    # model.export() produces an inference-optimised SavedModel whose graph has
+    # BatchNorm folded — this avoids the Keras 3 BatchNorm Cast issue in
+    # TF 2.16's MLIR quantizer that breaks from_keras_model / from_saved_model.
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        model.export(tmp_dir)
+        converter = tf.lite.TFLiteConverter.from_saved_model(tmp_dir)
+
+        # Enable INT8 quantization
+        converter.optimizations = [tf.lite.Optimize.DEFAULT]
+        converter.representative_dataset = rep_dataset
+        converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
+        converter.inference_input_type = tf.int8
+        converter.inference_output_type = tf.int8
+
+        # Convert
+        print("Converting to INT8 TFLite...")
+        tflite_model = converter.convert()
     
     # Save TFLite model
     with open(output_path, 'wb') as f:

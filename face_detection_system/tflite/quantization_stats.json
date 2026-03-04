@@ -3,10 +3,10 @@
     "original_path": "models/stage_a_final.keras",
     "quantized_path": "tflite/stage_a_int8.tflite",
     "original_size_bytes": 216068,
-    "quantized_size_bytes": 17944,
+    "quantized_size_bytes": 17976,
     "original_size_kb": 211.00390625,
-    "quantized_size_kb": 17.5234375,
-    "compression_ratio": 12.041239411502453
+    "quantized_size_kb": 17.5546875,
+    "compression_ratio": 12.019804183355586
   },
   "stage_a_validation": {
     "model_path": "tflite/stage_a_int8.tflite",
