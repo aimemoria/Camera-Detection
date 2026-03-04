@@ -26,7 +26,7 @@ import socketserver
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 # ─── Config ───────────────────────────────────────────────────────────────────
-SERIAL_PORT   = '/dev/cu.usbmodem1101'
+SERIAL_PORT   = '/dev/cu.usbmodem101'
 BAUD_RATE     = 115200
 HTTP_PORT     = 7654
 DISPLAY_WIDTH = 480   # px — frames are scaled to this width
