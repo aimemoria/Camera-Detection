@@ -106,7 +106,7 @@ void streamPreviewJPEG();
 // =============================================================================
 void setup() {
   Serial.begin(115200);
-  while (!Serial);
+  delay(1500);  // give host time to open port; avoids blocking while (!Serial)
 
   Serial.println("\n========================================");
   Serial.println("  TinyML Face Detection System");
