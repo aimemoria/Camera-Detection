@@ -1,14 +1,14 @@
 {
   "model_name": "stage_a",
-  "test_accuracy": 0.9977011494252873,
+  "test_accuracy": 0.9982905982905983,
   "confusion_matrix": [
     [
-      224,
-      1
+      375,
+      0
     ],
     [
-      0,
-      210
+      1,
+      209
     ]
   ],
   "class_names": [

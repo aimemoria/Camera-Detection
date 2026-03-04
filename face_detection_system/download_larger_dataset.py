@@ -4,7 +4,7 @@ Download and generate Stage A dataset for face detection.
 
 Stage A classes:
   person     — LFW (1000) + Olivetti AT&T Faces (400)
-  no_person  — synthetic backgrounds (500) + CIFAR-10 (1000)
+  no_person  — synthetic backgrounds (500) + CIFAR-10 (2000)
 
 CIFAR-10 is loaded from the local Keras cache (~/.keras/datasets/) using
 plain pickle — no TensorFlow import, no GPU initialisation.
@@ -27,7 +27,7 @@ IMG_SIZE      = 96
 MAX_PERSONS   = 1000  # LFW person images
 MAX_UTK       = 400   # Olivetti AT&T Faces (all 400 available)
 MAX_BG        = 500   # synthetic no_person images
-MAX_CIFAR_BG  = 1000  # CIFAR-10 real-world no_person images (loaded via pickle)
+MAX_CIFAR_BG  = 2000  # CIFAR-10 real-world no_person images (loaded via pickle)
 
 
 def save_gray(arr: np.ndarray, path: Path):
@@ -222,7 +222,7 @@ def main():
     print(f"  no_person: {no_person_total} images ({bg_count} synthetic + {cifar_count} CIFAR-10)")
     print(f"  Total:     {person_total + no_person_total} images")
     print("\nNext steps:")
-    print("  python3 C_preprocess_and_augment.py --dataset_dir dataset --output_dir processed --augment_train --augmentations 6")
+    print("  python3 C_preprocess_and_augment.py --dataset_dir dataset --output_dir processed --augment_train --augmentations 8")
     print("  python3 E_train_model.py --data_dir processed --output_dir models")
     print("  python3 F_quantize_model.py --model_dir models --data_dir processed --validate")
 

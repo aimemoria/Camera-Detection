@@ -30,15 +30,15 @@ The six conditions tracked in this report:
 Estimated accuracy per condition at each training stage.
 Estimates are based on what training data and augmentations were present or absent.
 
-| Condition | Before — Run 4 | After — Run 5 | After — Run 6 |
-|-----------|:--------------:|:-------------:|:-------------:|
-| 1. Clean face, plain background | ~95% | ~98% | ~98% |
-| 2. Real indoor background, no face | **~45%** | ~82% | ~88% |
-| 3. Blurry / out-of-focus face | **~55%** | ~83% | ~85% |
-| 4. Shadows / low light | **~60%** | ~80% | ~83% |
-| 5. Harsh backlight | **~50%** | ~75% | ~78% |
-| 6. Partial face / occlusion | **~65%** | ~80% | ~85% |
-| **Overall estimated average** | **~62%** | **~83%** | **~86%** |
+| Condition | Before — Run 4 | After — Run 5 | After — Run 6 | After — Run 7 |
+|-----------|:--------------:|:-------------:|:-------------:|:-------------:|
+| 1. Clean face, plain background | ~95% | ~98% | ~98% | ~98% |
+| 2. Real indoor background, no face | **~45%** | ~82% | ~88% | ~93% |
+| 3. Blurry / out-of-focus face | **~55%** | ~83% | ~85% | ~93% |
+| 4. Shadows / low light | **~60%** | ~80% | ~83% | ~92% |
+| 5. Harsh backlight | **~50%** | ~75% | ~78% | ~92% |
+| 6. Partial face / occlusion | **~65%** | ~80% | ~85% | ~93% |
+| **Overall estimated average** | **~62%** | **~83%** | **~86%** | **~93%** |
 
 > These are estimates, not measured benchmarks. Each estimate is grounded in what the model
 > was and was not trained on — see the reasoning section below.
@@ -114,6 +114,35 @@ Estimates are based on what training data and augmentations were present or abse
 
 ---
 
+### After Third Improvements — Run 7 (2026-03-04)
+
+**What was added:**
+
+| Change | Targets condition |
+|--------|-------------------|
+| Motion blur augmentation on ~30% of copies | Condition 3 — camera shake |
+| Backlight simulation (radial gradient) on ~30% of copies | Condition 5 — window backlight |
+| Gaussian blur frequency: 40% → 60% | Condition 3 |
+| Extreme brightness frequency: 25% → 45% | Conditions 4 and 5 |
+| Occlusion frequency: 20% → 45% | Condition 6 |
+| 2,000 CIFAR-10 backgrounds (doubled from 1,000) | Condition 2 |
+| 8 augmented copies per image (was 6) | All conditions |
+| 24,570 training samples (was 14,210) | All conditions |
+
+| Condition | Estimated | Reason |
+|-----------|:---------:|--------|
+| 1. Clean face, plain bg | ~98% | No regression — same face data, only more augmentation variety |
+| 2. Real indoor bg | ~93% | Doubled CIFAR-10 backgrounds (2,000) gives broader scene coverage |
+| 3. Blurry face | ~93% | Both Gaussian and motion blur now applied to 60–90% of training copies |
+| 4. Shadows / low light | ~92% | Extreme brightness applied to 45% of copies (vs 25%) |
+| 5. Harsh backlight | ~92% | New radial backlight simulation targets this condition directly |
+| 6. Partial face / occlusion | ~93% | Occlusion applied to 45% of copies (vs 20%) — more than doubled |
+
+**Lab result:** 99.83% on 585-sample test set (1 error) · INT8 validation 100% on 100 samples
+**Model size:** 17.55 KB
+
+---
+
 ## Key Decisions Log
 
 | Date | Decision | Reason |
@@ -125,6 +154,7 @@ Estimates are based on what training data and augmentations were present or abse
 | 2026-03-03 | Added blur / extreme brightness / occlusion augmentation | Camera sees these conditions; model had zero exposure to them |
 | 2026-03-03 | Increased LFW diversity (min_faces=1 vs 20) | Only 62 subjects is far too narrow for generalisation |
 | 2026-03-04 | Added Olivetti + doubled CIFAR-10 to 1,000 | Fill face diversity gap (age, expressions, glasses) and increase background variety |
+| 2026-03-04 | Added motion blur + backlight simulation; doubled CIFAR-10 to 2,000 | Targeted the two weakest conditions (backlight ~78%, blur ~85%); 45% occlusion rate for partial faces |
 
 ---
 

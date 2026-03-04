@@ -185,6 +185,21 @@ class Augmentor:
         blurred = pil_img.filter(ImageFilter.GaussianBlur(radius=sigma))
         return np.array(blurred).astype(np.float32) / 255.0
 
+    def motion_blur(self, img: np.ndarray, max_length: int = 10) -> np.ndarray:
+        """Apply directional motion blur — simulates OV2640 camera shake."""
+        length = random.randint(4, max_length)
+        angle = random.uniform(0, 360)
+        kernel = np.zeros((length, length), dtype=np.float32)
+        kernel[length // 2, :] = 1.0 / length
+        M = cv2.getRotationMatrix2D((length / 2.0, length / 2.0), angle, 1.0)
+        kernel = cv2.warpAffine(kernel, M, (length, length))
+        s = kernel.sum()
+        if s > 0:
+            kernel /= s
+        uint8_img = (img * 255).astype(np.uint8)
+        blurred = cv2.filter2D(uint8_img, -1, kernel)
+        return blurred.astype(np.float32) / 255.0
+
     def random_brightness_extreme(self, img: np.ndarray) -> np.ndarray:
         """Apply extreme brightness: very dark (shadows) or very bright (backlight)."""
         if random.random() > 0.5:
@@ -192,6 +207,18 @@ class Augmentor:
         else:
             factor = random.uniform(1.5, 2.0)   # harsh backlight
         return np.clip(img * factor, 0, 1)
+
+    def simulate_backlight(self, img: np.ndarray) -> np.ndarray:
+        """Radial brightness map: dark center, bright edges — simulates window backlight."""
+        h, w = img.shape
+        cy, cx = h / 2.0, w / 2.0
+        Y, X = np.ogrid[:h, :w]
+        dist = np.sqrt(((X - cx) / cx) ** 2 + ((Y - cy) / cy) ** 2)
+        dist = np.clip(dist, 0, 1.0)
+        center_factor = random.uniform(0.2, 0.5)
+        edge_factor   = random.uniform(1.6, 2.5)
+        backlight_map = center_factor + (edge_factor - center_factor) * dist
+        return np.clip(img * backlight_map, 0, 1).astype(np.float32)
 
     def random_occlusion(self, img: np.ndarray,
                          min_frac: float = 0.10,
@@ -207,7 +234,7 @@ class Augmentor:
         return result
 
     def augment(self, img: np.ndarray,
-                num_augmentations: int = 6) -> List[np.ndarray]:
+                num_augmentations: int = 8) -> List[np.ndarray]:
         """
         Generate multiple augmented versions of an image.
         
@@ -246,13 +273,19 @@ class Augmentor:
                 aug_img = self.add_gaussian_noise(aug_img)
 
             # Real-world degradation augmentations
-            if random.random() > 0.6:   # ~40% — simulate defocus/motion blur
+            if random.random() > 0.4:   # ~60% — simulate defocus blur
                 aug_img = self.gaussian_blur(aug_img)
 
-            if random.random() > 0.75:  # ~25% — simulate shadows/backlighting
+            if random.random() > 0.7:   # ~30% — simulate camera shake / motion blur
+                aug_img = self.motion_blur(aug_img)
+
+            if random.random() > 0.55:  # ~45% — simulate shadows/backlighting
                 aug_img = self.random_brightness_extreme(aug_img)
 
-            if random.random() > 0.8:   # ~20% — simulate partial face obstruction
+            if random.random() > 0.7:   # ~30% — simulate window backlight
+                aug_img = self.simulate_backlight(aug_img)
+
+            if random.random() > 0.55:  # ~45% — simulate partial face obstruction
                 aug_img = self.random_occlusion(aug_img)
 
             augmented.append(aug_img)
@@ -455,7 +488,7 @@ def main():
                         help='Use OpenCV face detection for cropping')
     parser.add_argument('--augment_train', action='store_true',
                         help='Apply data augmentation to training set')
-    parser.add_argument('--augmentations', type=int, default=6,
+    parser.add_argument('--augmentations', type=int, default=8,
                         help='Number of augmented copies per image')
     parser.add_argument('--train_ratio', type=float, default=0.7,
                         help='Fraction of data for training')
