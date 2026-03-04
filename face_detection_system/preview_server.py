@@ -6,6 +6,11 @@ Reads JPEG frames streamed from the Arduino over Serial and serves
 them as a true MJPEG stream.  No page-refresh polling — frames are
 pushed directly to the browser as they arrive.
 
+Architecture:
+  serial_thread    — reads raw bytes from Arduino, assembles JPEG frames
+  annotate_thread  — pre-annotates each new frame once (Haar + status bar)
+  HTTP threads     — one per client, serve from the pre-annotated cache
+
 Usage:
     python3 preview_server.py
 
@@ -34,11 +39,15 @@ _cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
 face_cascade  = cv2.CascadeClassifier(_cascade_path)
 # ──────────────────────────────────────────────────────────────────────────────
 
-# Shared state (written by serial thread, read by HTTP threads)
-latest_jpeg       = None
-latest_result     = "Waiting..."
-latest_confidence = "---"
-lock              = threading.Lock()
+# Shared state — written by serial / annotation threads, read by HTTP threads
+lock                  = threading.Lock()
+latest_jpeg           = None          # raw frame from Arduino
+latest_annotated_jpeg = None          # pre-annotated frame ready to serve
+latest_result         = "Waiting..."
+latest_confidence     = "---"
+
+# Signals annotation thread when a new raw frame arrives
+new_frame_event = threading.Event()
 
 
 # ─── Serial Reader Thread ─────────────────────────────────────────────────────
@@ -58,7 +67,9 @@ def serial_reader():
 
     while True:
         try:
-            chunk = ser.read(256)
+            # Read all buffered bytes at once — far fewer syscalls than fixed chunks
+            waiting = ser.in_waiting
+            chunk   = ser.read(waiting if waiting > 0 else 4096)
             if not chunk:
                 continue
             buf.extend(chunk)
@@ -98,6 +109,7 @@ def serial_reader():
                 if end_marker == FRAME_END:
                     with lock:
                         latest_jpeg = bytes(buf[start + 6: start + 6 + length])
+                    new_frame_event.set()   # wake annotation thread
                     buf = buf[end_needed:]
                 else:
                     buf = buf[start + 1:]   # bad frame — skip one byte and retry
@@ -124,12 +136,11 @@ def annotate_frame(jpeg_data, result, confidence):
     if img is None:
         return jpeg_data
 
-    # Scale to display width
-    h, w   = img.shape[:2]
-    scale  = DISPLAY_WIDTH / w
-    new_h  = max(1, int(h * scale))
-    img    = cv2.resize(img, (DISPLAY_WIDTH, new_h), interpolation=cv2.INTER_LANCZOS4)
-    h, w   = img.shape[:2]
+    # Scale to display width — INTER_LINEAR is fast and looks good at this size
+    h, w  = img.shape[:2]
+    new_h = max(1, int(h * DISPLAY_WIDTH / w))
+    img   = cv2.resize(img, (DISPLAY_WIDTH, new_h), interpolation=cv2.INTER_LINEAR)
+    h, w  = img.shape[:2]
 
     is_detected = (result == 'Face Detected')
 
@@ -163,8 +174,36 @@ def annotate_frame(jpeg_data, result, confidence):
     cv2.putText(img, label, (10, h - 11),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.58, color, 1, cv2.LINE_AA)
 
-    _, buf = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 88])
+    _, buf = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 85])
     return buf.tobytes()
+
+
+# ─── Annotation Thread ────────────────────────────────────────────────────────
+def annotation_worker():
+    """
+    Pre-annotates each new raw frame exactly once.
+    HTTP threads read from latest_annotated_jpeg — no duplicate Haar runs.
+    """
+    global latest_annotated_jpeg
+    last_raw = None
+
+    while True:
+        new_frame_event.wait(timeout=1.0)
+        new_frame_event.clear()
+
+        with lock:
+            raw    = latest_jpeg
+            result = latest_result
+            conf   = latest_confidence
+
+        if raw is None or raw is last_raw:
+            continue
+
+        last_raw   = raw
+        annotated  = annotate_frame(raw, result, conf)
+
+        with lock:
+            latest_annotated_jpeg = annotated
 
 
 # ─── HTML Page ────────────────────────────────────────────────────────────────
@@ -263,7 +302,7 @@ class PreviewHandler(BaseHTTPRequestHandler):
         elif self.path.startswith('/frame.jpg'):
             # Single-frame fallback (kept for compatibility)
             with lock:
-                data = latest_jpeg
+                data = latest_annotated_jpeg or latest_jpeg
             self._send(200, 'image/jpeg', data if data else self._placeholder())
 
         elif self.path == '/status':
@@ -279,7 +318,7 @@ class PreviewHandler(BaseHTTPRequestHandler):
             self._send(404, 'text/plain', b'Not found')
 
     def _stream_mjpeg(self):
-        """Push annotated JPEG frames as a multipart MJPEG stream."""
+        """Push pre-annotated JPEG frames as a multipart MJPEG stream."""
         self.send_response(200)
         self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=frame')
         self.send_header('Cache-Control', 'no-cache, no-store')
@@ -290,13 +329,10 @@ class PreviewHandler(BaseHTTPRequestHandler):
         try:
             while True:
                 with lock:
-                    jpeg   = latest_jpeg
-                    result = latest_result
-                    conf   = latest_confidence
+                    annotated = latest_annotated_jpeg
 
-                if jpeg is not None and jpeg is not last_frame:
-                    last_frame = jpeg
-                    annotated  = annotate_frame(jpeg, result, conf)
+                if annotated is not None and annotated is not last_frame:
+                    last_frame = annotated
                     chunk = (
                         b'--frame\r\n'
                         b'Content-Type: image/jpeg\r\n'
@@ -306,7 +342,7 @@ class PreviewHandler(BaseHTTPRequestHandler):
                     self.wfile.write(chunk)
                     self.wfile.flush()
 
-                time.sleep(0.01)   # 100 Hz poll; only sends on new frame
+                time.sleep(0.005)   # 200 Hz poll; only sends on new pre-annotated frame
 
         except (BrokenPipeError, ConnectionResetError):
             pass
@@ -365,8 +401,8 @@ class ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
-    t = threading.Thread(target=serial_reader, daemon=True)
-    t.start()
+    threading.Thread(target=serial_reader,    daemon=True).start()
+    threading.Thread(target=annotation_worker, daemon=True).start()
 
     server = ThreadedHTTPServer(('localhost', HTTP_PORT), PreviewHandler)
     print(f"\n{'='*55}")
