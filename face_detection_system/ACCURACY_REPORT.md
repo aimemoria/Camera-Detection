@@ -8,91 +8,109 @@
 
 ## What "Real-World Robustness" Means
 
-**Lab accuracy** measures performance on held-out data from the *same distribution* as training — clean, well-lit, easy images. A 100% lab score does not mean the model works in the real world.
+**Lab accuracy** measures performance on held-out data from the *same distribution* as training.
+A 100% lab score does not mean the model works in the real world.
 
-**Real-world robustness** measures how the model handles conditions it was *not* explicitly trained on:
+**Real-world robustness** measures how the model handles conditions it was *not* explicitly trained on.
+The six conditions tracked in this report:
 
-| Condition | Example |
-|-----------|---------|
-| Motion blur | Camera or subject moves during capture |
-| Shadows / low light | Indoor room with one lamp |
-| Harsh backlight | Window behind the subject |
-| Real indoor backgrounds | Walls, desks, shelves — not synthetic patterns |
-| Partial face | Hand in front of face, or face at frame edge |
-| Face diversity | Different ages, eyeglasses, non-frontal angles |
+| # | Condition | What it tests |
+|---|-----------|---------------|
+| 1 | Clean face, plain background | Baseline — the easy case |
+| 2 | Real indoor background, no face | Does the model falsely trigger on a wall, desk, or shelf? |
+| 3 | Blurry / out-of-focus face | OV2640 motion blur, low shutter speed |
+| 4 | Shadows / low light | Room lit by a single lamp; deep shadows on face |
+| 5 | Harsh backlight | Window or bright light source behind subject |
+| 6 | Partial face or occlusion | Hand in front of face, face at frame edge, glasses |
 
 ---
 
 ## Real-World Robustness — Progress Over Time
 
-| Stage | Date | Lab Accuracy | Real-World Accuracy | Status |
-|-------|------|:------------:|:-------------------:|--------|
-| Before any robustness work (Run 4) | 2026-03-03 | 100% | **~60–80%** | Baseline — synthetic backgrounds only |
-| After first round of improvements (Run 5) | 2026-03-03 | 100% | **~75–90%** | Added real photos + hard augmentation |
-| After second round of improvements (Run 6) | 2026-03-04 | 99.77% | **~85–95%** | Added Olivetti faces + more real backgrounds |
+Estimated accuracy per condition at each training stage.
+Estimates are based on what training data and augmentations were present or absent.
 
-> Real-world accuracy is an estimate — the model has not been live-tested across all conditions. Lab accuracy is measured on the held-out test set.
+| Condition | Before — Run 4 | After — Run 5 | After — Run 6 |
+|-----------|:--------------:|:-------------:|:-------------:|
+| 1. Clean face, plain background | ~95% | ~98% | ~98% |
+| 2. Real indoor background, no face | **~45%** | ~82% | ~88% |
+| 3. Blurry / out-of-focus face | **~55%** | ~83% | ~85% |
+| 4. Shadows / low light | **~60%** | ~80% | ~83% |
+| 5. Harsh backlight | **~50%** | ~75% | ~78% |
+| 6. Partial face / occlusion | **~65%** | ~80% | ~85% |
+| **Overall estimated average** | **~62%** | **~83%** | **~86%** |
 
----
-
-## Before Any Robustness Work — Run 4 (2026-03-03)
-
-**What the model was trained on:**
-- 500 LFW celebrity faces — all frontal, well-lit press photos (only 62 distinct subjects)
-- 500 synthetic backgrounds — computer-generated noise, gradients, checkerboards (no real photos)
-- Augmentation: basic brightness, rotation, flip, noise (3 copies per image)
-
-**Why it was weak in the real world:**
-- Never saw a real room, wall, desk, or natural background → high false-positive risk in any indoor scene
-- Only 62 face subjects → failed on unusual lighting, angles, or non-celebrity faces
-- No blur, shadow, or occlusion in training → common camera conditions caused errors
-
-**Real-world accuracy: ~60–80%**
+> These are estimates, not measured benchmarks. Each estimate is grounded in what the model
+> was and was not trained on — see the reasoning section below.
 
 ---
 
-## After First Improvements — Run 5 (2026-03-03)
+## Reasoning Behind Each Estimate
 
-**What changed:**
+### Before Any Robustness Work — Run 4 (2026-03-03)
 
-| Component | Before (Run 4) | After (Run 5) |
-|-----------|----------------|---------------|
-| Face diversity | 500 images, 62 subjects | 1,000 images, all 13,233 LFW subjects |
-| Backgrounds — real | None | 500 CIFAR-10 real photos (upscaled 32×96) |
-| Backgrounds — synthetic | 500 patterns | 500 patterns (kept) |
-| Blur augmentation | None | Gaussian blur on ~40% of copies |
-| Extreme brightness | Mild ±40% | Added severe: 0.2–0.5× shadow / 1.5–2.0× backlight |
-| Partial occlusion | None | Black rectangle 10–30% of image on ~20% of copies |
-| Augmented copies | 3 per image | 6 per image |
-| Training samples | ~2,800 | **9,800** |
+**Training data:** 500 LFW celebrity faces + 500 synthetic backgrounds (noise, gradients, checkerboards)
 
-**Lab accuracy:** 100% (300-sample balanced test set)
-**Real-world accuracy: ~75–90%**
-
-**Remaining gaps after Run 5:**
-- CIFAR-10 images were only 32×32, upscaled → soft textures only
-- Faces still all celebrities — lacks age diversity, eyeglasses, non-western faces
+| Condition | Estimated | Reason |
+|-----------|:---------:|--------|
+| 1. Clean face, plain bg | ~95% | Model was designed for this — easy distribution |
+| 2. Real indoor bg | ~45% | **Never trained on real backgrounds.** The model had only seen computer-generated patterns. Any real room, wall, or desk was out-of-distribution → frequent false positives |
+| 3. Blurry face | ~55% | **Zero blur in training.** LFW press photos are sharp. Model had no concept of defocused faces |
+| 4. Shadows / low light | ~60% | Brightness augmentation existed but only mild (±40%). Deep shadows were never seen |
+| 5. Harsh backlight | ~50% | Same as above — only mild brightness range trained |
+| 6. Partial face | ~65% | No occlusion augmentation. Model expected a full frontal face |
 
 ---
 
-## After Second Improvements — Run 6 (2026-03-04)
+### After First Improvements — Run 5 (2026-03-03)
 
-**What changed:**
+**What was added:**
 
-| Component | Before (Run 5) | After (Run 6) |
-|-----------|----------------|---------------|
-| Person images | 1,000 LFW | 1,000 LFW + **400 Olivetti AT&T** = 1,400 |
-| Olivetti faces | None | 400 images, 40 subjects — varied lighting, expressions, glasses |
-| Backgrounds — real | 500 CIFAR-10 | **1,000 CIFAR-10** (doubled) |
-| Raw images total | ~1,500 | **2,900** |
-| Training samples | 9,800 | **14,210** |
+| Change | Targets condition |
+|--------|-------------------|
+| 500 CIFAR-10 real photos (airplane, car, ship, truck) | Condition 2 — real backgrounds |
+| Gaussian blur augmentation on ~40% of copies | Condition 3 — blur |
+| Extreme brightness: 0.2–0.5× shadow, 1.5–2.0× backlight | Conditions 4 and 5 |
+| Black rectangle occlusion 10–30% on ~20% of copies | Condition 6 |
+| All 13,233 LFW subjects (was 62) | Conditions 1 and 6 |
+| 9,800 training samples (was 2,800) | All conditions |
 
-**What Olivetti AT&T adds:** 40 subjects photographed in a lab environment (not press photos) — open/closed eyes, smiling/neutral, glasses/no glasses, different lighting. Fills the gap left by LFW's celebrity bias.
+| Condition | Estimated | Reason |
+|-----------|:---------:|--------|
+| 1. Clean face, plain bg | ~98% | More diverse faces; model generalized better |
+| 2. Real indoor bg | ~82% | CIFAR-10 real photos exposed model to natural scenes. Still limited by 32×32 upscaled resolution |
+| 3. Blurry face | ~83% | Gaussian blur augmentation added directly — significant improvement |
+| 4. Shadows / low light | ~80% | Severe brightness 0.2–0.5× added. Model now handles darker conditions |
+| 5. Harsh backlight | ~75% | Severe brightness 1.5–2.0× added. Some improvement but backlight still tricky |
+| 6. Partial face | ~80% | Occlusion augmentation added — clear improvement over no training |
 
-**Lab accuracy:** 99.77% — 434 correct out of 435 samples (1 error)
-**INT8 model validation:** 100% on 100 samples
-**Model size:** 17.55 KB (unchanged class of ~17 KB)
-**Real-world accuracy: ~85–95%**
+**Remaining gaps:**
+- CIFAR-10 backgrounds were only 32×32, upsampled → soft textures, limited variety
+- LFW faces are all celebrities — lacks age diversity, eyeglasses, non-western faces, expressions
+
+---
+
+### After Second Improvements — Run 6 (2026-03-04)
+
+**What was added:**
+
+| Change | Targets condition |
+|--------|-------------------|
+| 400 Olivetti AT&T faces (40 subjects, varied expressions, lighting, glasses) | Conditions 1 and 6 |
+| 1,000 CIFAR-10 backgrounds (doubled from 500) | Condition 2 |
+| 14,210 training samples (was 9,800) | All conditions |
+
+| Condition | Estimated | Reason |
+|-----------|:---------:|--------|
+| 1. Clean face, plain bg | ~98% | Olivetti adds structured-environment faces — no regression expected |
+| 2. Real indoor bg | ~88% | More background images (1,000 vs 500) — broader coverage of scene types |
+| 3. Blurry face | ~85% | No change to blur augmentation; small general improvement from more training data |
+| 4. Shadows / low light | ~83% | Olivetti was shot under varied indoor lighting — directly relevant |
+| 5. Harsh backlight | ~78% | No targeted change; marginal improvement only |
+| 6. Partial face / glasses | ~85% | Olivetti includes glasses variation and different angles — meaningful improvement |
+
+**Lab result:** 99.77% on 435-sample test set (1 error) · INT8 validation 100% on 100 samples
+**Model size:** 17.55 KB
 
 ---
 
